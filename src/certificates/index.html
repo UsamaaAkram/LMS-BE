@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Certificate of Excellence</title>
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+            font-family: 'Roboto', Arial, sans-serif;
+            color: #222;
+        }
+
+        .certificate-container {
+            background: #fff;
+            position: relative;
+            overflow: hidden;
+            min-height: 794px;
+            box-sizing: border-box;
+        }
+
+        /* Ribbon/blue shapes */
+        .cert-ribbon-main {
+            position: absolute;
+            right: 0;
+            top: 0;
+            width: 510px;
+            height: 100%;
+            z-index: 2;
+        }
+
+        .cert-ribbon-badge {
+            position: absolute;
+            right: 40px;
+            top: 20px;
+            z-index: 3;
+        }
+
+        .badge-img {
+            height: 180px;
+        }
+
+        .cert-ribbon-corner {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            height: 241px;
+            z-index: 2;
+            opacity: 0.4;
+        }
+
+        /* Main Content */
+        .content {
+            padding: 60px 80px 30px 80px;
+            text-align: left;
+            position: relative;
+            z-index: 9;
+        }
+
+        .cert-title {
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-size: 2.95em;
+            color: #143d8f;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            margin-top: 18px;
+            margin-bottom: 0px;
+            line-height: 1.2;
+        }
+
+        .cert-excellence {
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-size: 1.5em;
+            color: #3c4a6a;
+            letter-spacing: 0.28em;
+            margin-bottom: 48px;
+        }
+
+        .logo-bg {
+            width: 350px;
+            opacity: 0.15;
+            display: block;
+            position: absolute;
+            left: 30%;
+            top: 250px;
+            z-index: 2;
+        }
+
+        .cert-main-text {
+            margin: 75px 0 30px 0;
+            font-size: 1.85em;
+            font-family: 'Roboto', Arial, sans-serif;
+            font-weight: 500;
+        }
+
+        .cert-main-text strong {
+            font-weight: 700;
+            color: #17316d;
+            font-size: 1.42em;
+            letter-spacing: 0.02em;
+        }
+
+        .cert-desc {
+            color: #222;
+            font-size: 1.48em;
+            margin-bottom: 45px;
+            margin-top: 15px;
+            font-style: italic;
+            line-height: 1.6;
+            font-family: 'Roboto', Arial, sans-serif;
+        }
+
+        .cert-detail-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 65px;
+            font-size: 1.02em;
+        }
+
+        .cert-detail-label {
+            color: #555;
+            font-size: 1.05em;
+            letter-spacing: 0.04em;
+            margin-bottom: 2px;
+        }
+
+        .cert-detail-value {
+            color: #222;
+            font-size: 1.08em;
+            font-weight: 500;
+            margin-top: 2px;
+            min-width: 160px;
+            letter-spacing: 0.01em;
+        }
+
+        .cert-signature-block {
+            text-align: right;
+            min-width: 220px;
+        }
+
+        .cert-signature {
+            font-family: 'Brush Script MT', 'Caveat', cursive;
+            font-size: 1.9em;
+            color: #17316d;
+            font-weight: 500;
+            margin-bottom: -7px;
+            margin-right: 10px;
+            margin-top: -22px;
+        }
+
+        .cert-sign-label {
+            color: #888;
+            font-size: 1em;
+            letter-spacing: 0.03em;
+            border-top: 2px solid #222;
+            display: inline-block;
+            padding-top: 2px;
+            margin-bottom: 0;
+            margin-right: 10px;
+        }
+
+        .corner-img {
+            height: 100%;
+        }
+
+        @media screen and (max-width: 700px) {
+            .certificate-container {
+                padding: 0;
+                max-width: 97vw;
+            }
+
+            .content {
+                padding: 30px 8px;
+            }
+
+            .logo-bg {
+                width: 40vw;
+                left: 8vw;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="certificate-container">
+        <div class="cert-ribbon-main">
+            <img src="${sideBarBase64}" alt="Ribbon Shape" style="width:100%;height:100%;object-fit:cover;opacity:1;" />
+        </div>
+        <div class="cert-ribbon-corner">
+            <img src="${cornerBase64}" class="corner-img" alt="Medal/badge" />
+
+        </div>
+        <div class="cert-ribbon-badge">
+            <img  src="${awardBase64}" class="badge-img" alt="Medal/badge" />
+        </div>
+        <img src="${logoBase64}" class="logo-bg" alt="Logo" />
+
+        <div class="content">
+            <div class="cert-title">CERTIFICATE</div>
+            <div class="cert-excellence">OF EXCELLENCE</div>
+            <div class="cert-main-text">
+                This certifies that : <br>
+                <strong>${studentName}</strong>
+            </div>
+            <div class="cert-desc">
+                Awarded for demonstrating exceptional proficiency and excellence<br>
+                throughout the <strong>${courseName}</strong> program.
+            </div>
+            <br /><br />
+            <div class="cert-detail-row">
+                <div>
+                    <div class="cert-detail-label">DATE</div>
+                    <div class="cert-detail-value">${issueDate}</div>
+                </div>
+                <div class="cert-signature-block">
+                    <div class="cert-signature">M. Bilal</div>
+                    <div class="cert-sign-label">SIGNATURE</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

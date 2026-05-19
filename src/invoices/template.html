@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Invoice - ${invoiceId}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #333;
+      background: #fff;
+      padding: 24px 32px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    a { color: #333; text-decoration: none; }
+
+    /* ===== HEADER ===== */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 16px;
+    }
+    .header img { height: 60px; display: block; margin-bottom: 6px; }
+    .header-left p { font-size: 11px; color: #888; margin-top: 4px; }
+    .header-right { text-align: right; }
+    .invoice-id {
+      color: #00bffd;
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .header-right p {
+      font-size: 12px;
+      color: #555;
+      margin-bottom: 2px;
+    }
+
+    /* ===== PARTIES ===== */
+    .parties {
+      display: flex;
+      justify-content: space-between;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 16px;
+      gap: 16px;
+    }
+    .party { flex: 1; }
+    .party-label {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .party h6 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #333;
+    }
+    .party p {
+      margin-bottom: 2px;
+      font-size: 12px;
+      color: #555;
+    }
+    .status-box {
+      text-align: right;
+      min-width: 120px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+    .status-completed { background: #198754; }
+    .status-pending { background: #0dcaf0; }
+    .payment-method {
+      font-size: 12px;
+      color: #888;
+    }
+
+    /* ===== TABLE ===== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+    }
+    th {
+      background: #f5f5f5;
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #666;
+      border-bottom: 2px solid #ddd;
+    }
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #eee;
+      font-size: 12px;
+    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+    .fw-bold { font-weight: 600; }
+
+    /* ===== TOTALS ===== */
+    .totals-wrapper {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 16px;
+    }
+    .totals { width: 260px; }
+    .totals .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 12px;
+    }
+    .totals .row.border-top {
+      border-top: 2px solid #333;
+      margin-top: 6px;
+      padding-top: 8px;
+    }
+    .totals .row.border-top span {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    /* ===== FOOTER ===== */
+    .footer-section {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-top: 1px solid #ddd;
+      padding-top: 16px;
+      margin-top: 8px;
+    }
+    .footer-left { flex: 1; padding-right: 24px; }
+    .terms h6 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .terms p {
+      font-size: 11px;
+      color: #555;
+      line-height: 1.6;
+    }
+    .notes h6 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .notes p {
+      font-size: 11px;
+      color: #555;
+    }
+    .signature {
+      text-align: right;
+      min-width: 140px;
+    }
+    .signature img {
+      height: 70px;
+      margin-bottom: 4px;
+    }
+    .signature h6 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+    .signature p {
+      font-size: 11px;
+      color: #888;
+    }
+
+    @media print {
+      body { padding: 16px 24px; }
+      @page { margin: 12mm 10mm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <div>
+      <img src="${logoBase64}" alt="Logo" />
+      <p>Near HBL Bank Railway Road, Dunyapur, Pakistan</p>
+    </div>
+    <div class="header-right">
+      <div class="invoice-id">#${invoiceId}</div>
+      <p>Created : ${createdDate}</p>
+      <p>Due : ${dueDate}</p>
+    </div>
+  </div>
+
+  <!-- Parties -->
+  <div class="parties">
+    <div class="party">
+      <div class="party-label">Issued By</div>
+      <h6>Bluverse Digital Hub</h6>
+      <p>Email : bluversedigitalhub@gmail.com</p>
+      <p>Phone : 03134339915</p>
+      <p>Landline : 0608-304-657</p>
+    </div>
+    <div class="party">
+      <div class="party-label">To</div>
+      <h6>${customerName}</h6>
+      <p>City : ${customerCity}</p>
+      <p>Email : ${customerEmail}</p>
+      <p>Phone : ${customerPhone}</p>
+    </div>
+    <div class="status-box">
+      <div class="party-label">Payment Status</div>
+      <span class="status-badge ${statusBadgeClass}">${paymentStatus}</span>
+      <div class="payment-method">${paymentMethod}</div>
+    </div>
+  </div>
+
+  <!-- Items Table -->
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Description</th>
+        <th class="text-center">Qty</th>
+        <th class="text-right">Cost</th>
+        <th class="text-right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemsRows}
+    </tbody>
+  </table>
+
+  <!-- Totals -->
+  <div class="totals-wrapper">
+    <div class="totals">
+      <div class="row">
+        <span>Sub Total</span>
+        <span>Rs. ${subTotal}</span>
+      </div>
+      ${discountRow}
+      <div class="row border-top">
+        <span>Total Amount</span>
+        <span>Rs. ${totalAmount}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer-section">
+    <div class="footer-left">
+      ${notesSection}
+      <div class="terms">
+        <h6>Terms &amp; Conditions – Bluverse Digital Hub</h6>
+        <p>
+          All fees are non-refundable under any circumstances.<br />
+          Account sharing is strictly prohibited and may result in permanent suspension.<br />
+          Content misuse, reselling, or piracy will lead to legal action.<br />
+          Students are responsible for submitting accurate enrollment information.
+        </p>
+      </div>
+    </div>
+    <div class="signature">
+      <img src="${stampBase64}" alt="Stamp" />
+      <h6>Bluverse Digital Hub</h6>
+      <p>Authorized Signatory</p>
+    </div>
+  </div>
+
+</body>
+</html>
