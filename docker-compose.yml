@@ -1,0 +1,36 @@
+# Backend stack for a single EC2 instance.
+# nginx terminates TLS (Let's Encrypt) and proxies HTTP + WebSocket to the
+# Node backend. MongoDB is Atlas (cloud), so no db container here.
+#
+#   cp .env.example .env   # fill in real secrets
+#   docker compose up -d --build
+
+services:
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    expose:
+      - "5000"            # internal only; public traffic goes through nginx
+    networks:
+      - lms
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/api.conf:/etc/nginx/conf.d/default.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro          # certs from host certbot
+      - ./deploy/certbot/www:/var/www/certbot          # ACME http-01 challenge
+    networks:
+      - lms
+
+networks:
+  lms:
+    driver: bridge

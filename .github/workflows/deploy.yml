@@ -1,0 +1,51 @@
+name: Deploy Backend (EC2)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build / syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: yarn
+
+      - name: Install dependencies
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"   # skip heavy Chromium download in CI
+        run: yarn install --frozen-lockfile
+
+      - name: Syntax check all source files
+        run: find src -name "*.js" -print0 | xargs -0 -n1 node --check
+
+  deploy:
+    name: Deploy to EC2
+    needs: build
+    runs-on: ubuntu-latest
+    # Don't interrupt an in-progress deploy
+    concurrency:
+      group: deploy-backend
+      cancel-in-progress: false
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd ${{ vars.APP_DIR }}
+            git pull origin main
+            docker compose up -d --build
+            docker image prune -f
