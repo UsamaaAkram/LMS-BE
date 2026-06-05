@@ -1,0 +1,33 @@
+# Render Blueprint — Backend (LMS-BE)
+# Node + Express + Socket.IO + Puppeteer, deployed as a Docker web service.
+# MongoDB stays on Atlas (set MONGO_URI below). Render provides TLS automatically,
+# so nginx / certbot / docker-compose in this repo are NOT used here.
+#
+# Deploy: Render Dashboard -> New -> Blueprint -> pick this repo.
+# You'll be prompted to paste the values for any env var marked "sync: false".
+
+services:
+  - type: web
+    name: lms-be
+    runtime: docker
+    plan: standard          # Puppeteer/Chromium (PDF invoices) needs the RAM.
+                            # Use "starter" or "free" only to test non-PDF features.
+    region: singapore       # closest to South Asia; must match the frontend's region
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/auth
+    autoDeploy: true        # redeploy on every push to the connected branch
+    envVars:
+      - key: MONGO_URI                # Atlas connection string
+        sync: false
+      - key: JWT_SECRET               # remove this entry & paste your own if you
+        generateValue: true          # already issue tokens with an existing secret
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+    # PORT is injected by Render automatically — your server.js already reads it.
