@@ -13,6 +13,11 @@ const Quiz = require("../models/Quiz");
 const getCourseActualProgress = require("../utils/getCourseActualProgress");
 
 const calculateProgress = require("../utils/calculateProgress");
+const {
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  generateOtp,
+} = require("../utils/mailer");
 
 const multer = require("multer");
 const moment = require("moment");
@@ -194,6 +199,10 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
       }
     }
 
+    // Email verification OTP (valid 15 minutes)
+    const otp = generateOtp();
+    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
     // Build body per new schema
     const studentDoc = {
       student: {
@@ -213,6 +222,9 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
         isDisable: isDisable !== undefined ? isDisable : true,
         current_logged_in_locations: [],
         isDeactivated: isDeactivated !== undefined ? isDeactivated : false,
+        emailVerified: false,
+        verificationOtp: otp,
+        verificationOtpExpiry: otpExpiry,
       },
       administrative: {
         batch: batch || "",
@@ -236,12 +248,182 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
     const newStudent = new Student(studentDoc);
     await newStudent.save();
 
-    // Do not return password
+    // Send verification email (don't fail signup if SMTP errors)
+    let emailSent = false;
+    try {
+      await sendVerificationEmail(email, firstName || userName, otp);
+      emailSent = true;
+    } catch (mailErr) {
+      console.error("Verification email failed:", mailErr.message);
+    }
+
+    // Do not return password / OTP
     const responseDoc = newStudent.toObject();
-    // if (responseDoc.student) delete responseDoc.student.password;
-    res
-      .status(201)
-      .json({ message: "Student registered", student: responseDoc });
+    if (responseDoc.student) {
+      delete responseDoc.student.password;
+      delete responseDoc.student.verificationOtp;
+      delete responseDoc.student.verificationOtpExpiry;
+    }
+    res.status(201).json({
+      message:
+        "Student registered. Please check your email for a verification code.",
+      email,
+      emailSent,
+      student: responseDoc,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify email with OTP
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ error: "Email and OTP are required." });
+    }
+    const student = await Student.findOne({ "student.email": email });
+    if (!student) return res.status(404).json({ error: "Account not found." });
+
+    if (student.student.emailVerified) {
+      return res.json({ message: "Email already verified." });
+    }
+    if (
+      !student.student.verificationOtp ||
+      student.student.verificationOtp !== String(otp).trim()
+    ) {
+      return res.status(400).json({ error: "Invalid verification code." });
+    }
+    if (
+      !student.student.verificationOtpExpiry ||
+      new Date(student.student.verificationOtpExpiry) < new Date()
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Verification code has expired. Please resend." });
+    }
+
+    student.student.emailVerified = true;
+    student.student.verificationOtp = "";
+    student.student.verificationOtpExpiry = null;
+    await student.save();
+
+    res.json({ message: "Email verified successfully." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Resend verification OTP
+router.post("/resend-verification", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required." });
+
+    const student = await Student.findOne({ "student.email": email });
+    if (!student) return res.status(404).json({ error: "Account not found." });
+    if (student.student.emailVerified) {
+      return res.json({ message: "Email already verified." });
+    }
+
+    const otp = generateOtp();
+    student.student.verificationOtp = otp;
+    student.student.verificationOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+    await student.save();
+
+    try {
+      await sendVerificationEmail(
+        email,
+        student.student.firstName || student.student.userName,
+        otp
+      );
+    } catch (mailErr) {
+      console.error("Resend verification email failed:", mailErr.message);
+      return res
+        .status(500)
+        .json({ error: "Could not send verification email." });
+    }
+
+    res.json({ message: "A new verification code has been sent." });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Forgot password — send a reset OTP
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required." });
+
+    const student = await Student.findOne({ "student.email": email });
+
+    // Always respond the same way to avoid revealing whether an account exists
+    const genericMsg =
+      "If an account with that email exists, a reset code has been sent.";
+
+    if (student) {
+      const otp = generateOtp();
+      student.student.resetOtp = otp;
+      student.student.resetOtpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+      await student.save();
+      try {
+        await sendPasswordResetEmail(
+          email,
+          student.student.firstName || student.student.userName,
+          otp
+        );
+      } catch (mailErr) {
+        console.error("Password reset email failed:", mailErr.message);
+      }
+    }
+
+    res.json({ message: genericMsg });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset password — verify OTP and set the new password
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      return res
+        .status(400)
+        .json({ error: "Email, code and new password are required." });
+    }
+    if (newPassword.length < 8) {
+      return res
+        .status(400)
+        .json({ error: "Password must be at least 8 characters." });
+    }
+
+    const student = await Student.findOne({ "student.email": email });
+    if (!student) return res.status(404).json({ error: "Account not found." });
+
+    if (
+      !student.student.resetOtp ||
+      student.student.resetOtp !== String(otp).trim()
+    ) {
+      return res.status(400).json({ error: "Invalid reset code." });
+    }
+    if (
+      !student.student.resetOtpExpiry ||
+      new Date(student.student.resetOtpExpiry) < new Date()
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Reset code has expired. Please request a new one." });
+    }
+
+    student.student.password = await bcrypt.hash(newPassword, 10);
+    student.student.resetOtp = "";
+    student.student.resetOtpExpiry = null;
+    await student.save();
+
+    res.json({ message: "Password reset successfully. You can now log in." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -434,8 +616,14 @@ router.get("/summary", async (req, res) => {
     const query = {};
 
     // Administrative filters (in subdocuments!)
-    if (batch) query["administrative.batch"] = batch;
-    if (enrolledBranch) query["administrative.enrolledBranch"] = enrolledBranch;
+    // batch & branch are free-text — match case-insensitive / partial
+    if (batch)
+      query["administrative.batch"] = { $regex: batch, $options: "i" };
+    if (enrolledBranch)
+      query["administrative.enrolledBranch"] = {
+        $regex: enrolledBranch,
+        $options: "i",
+      };
     if (enrolledBy) query["administrative.enrolledBy"] = enrolledBy;
     if (studentType) query["administrative.studentType"] = studentType;
     if (shift) query["administrative.shift"] = shift;
@@ -954,23 +1142,26 @@ router.post("/:studentId/course/:courseId/lesson-watched", async (req, res) => {
     if (!progress)
       return res.status(404).json({ error: "No progress for this course" });
 
-    if (
-      progress.lessonWatched.find(
-        (lw) => lw.lessonID === lessonID && lw.videoID === videoID
-      )
-    ) {
-      return res.status(400).json({
-        error: "LessonWatched already exists for this lessonID and videoID.",
+    // Idempotent: if a record already exists for this lesson/video, update it
+    // (so repeated autosaves don't fail) — otherwise create a new one.
+    const existing = progress.lessonWatched.find(
+      (lw) => lw.lessonID === lessonID && lw.videoID === videoID
+    );
+    if (existing) {
+      if (typeof completed === "boolean") existing.completed = completed;
+      if (typeof videoTime === "number") existing.videoTime = videoTime;
+      // Never let progress go backwards
+      if (typeof presentWatch === "number")
+        existing.presentWatch = Math.max(existing.presentWatch || 0, presentWatch);
+    } else {
+      progress.lessonWatched.push({
+        lessonID,
+        videoID,
+        completed: completed || false,
+        videoTime: videoTime || 0,
+        presentWatch: presentWatch || 0,
       });
     }
-
-    progress.lessonWatched.push({
-      lessonID,
-      videoID,
-      completed: completed || false,
-      videoTime: videoTime || 0,
-      presentWatch: presentWatch || 0,
-    });
 
     // 🔥 Calculate Live Progress!
     const calc = calculateProgress(progress);

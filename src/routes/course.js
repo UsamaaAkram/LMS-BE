@@ -3,6 +3,9 @@ const router = express.Router();
 const Course = require("../models/Course");
 const Student = require("../models/Student");
 const Assignment = require("../models/Assignment");
+const Quiz = require("../models/Quiz");
+const Instructor = require("../models/Instructor");
+const Enrollment = require("../models/Enrollment");
 const multer = require("multer");
 const upload = multer();
 
@@ -110,12 +113,44 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// DELETE by id (unchanged logic)
+// DELETE by id — cascades to all data linked to the course
 router.delete("/:id", async (req, res) => {
   try {
-    const course = await Course.findByIdAndDelete(req.params.id);
+    const courseId = req.params.id;
+
+    const course = await Course.findByIdAndDelete(courseId);
     if (!course) return res.status(404).json({ error: "Not found" });
-    res.json({ message: "Course deleted" });
+
+    // 1) Course-linked content
+    await Assignment.deleteMany({ courseID: courseId });
+    await Quiz.deleteMany({ courseID: courseId });
+
+    // 2) Student side — enrollment, wishlist, progress & certificates for this course
+    await Student.updateMany(
+      {},
+      {
+        $pull: {
+          enrolledCourses: courseId,
+          wishlist: courseId,
+          progress: { courseID: courseId },
+          certificates: { courseID: courseId },
+        },
+      }
+    );
+
+    // 3) Instructor course-list references
+    await Instructor.updateMany({}, { $pull: { courses: courseId } });
+
+    // 4) Orphaned enrollment records (legacy model, if any)
+    try {
+      await Enrollment.deleteMany({ course: courseId });
+    } catch (e) {
+      /* Enrollment model unused — ignore */
+    }
+
+    res.json({
+      message: "Course and all related data deleted",
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -2,7 +2,8 @@ const mongoose = require("mongoose");
 
 const LessonSchema = new mongoose.Schema({
   name: String,
-  videoUrl: String,
+  videoUrl: String, // optional fallback (non-DRM)
+  vdoId: String, // VdoCipher video id (DRM playback)
   description: String,
 });
 

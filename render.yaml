@@ -30,4 +30,20 @@ services:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+      # SMTP (email verification + password reset)
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER             # full email address
+        sync: false
+      - key: SMTP_PASS             # Gmail App Password (not the normal password)
+        sync: false
+      - key: MAIL_FROM             # e.g. Bluverse <no-reply@bluversedigitalhub.com>
+        sync: false
+      # VdoCipher (DRM video) — Dashboard -> API -> API Secret
+      - key: VDOCIPHER_API_SECRET
+        sync: false
     # PORT is injected by Render automatically — your server.js already reads it.

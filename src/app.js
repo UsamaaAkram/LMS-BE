@@ -48,6 +48,9 @@ const io = socketIo(server, { cors: { origin: "*" } });
 //Invoice Routes
 app.use("/api/invoices", require("./routes/invoice"));
 
+// VdoCipher (DRM video) Routes
+app.use("/api/videos", require("./routes/video"));
+
 const { chatSocket, getSocketIdByUserId } = require("./sockets/chatSocket");
 chatSocket(io);
 

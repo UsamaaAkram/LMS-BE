@@ -168,7 +168,9 @@
       min-width: 140px;
     }
     .signature img {
-      height: 70px;
+      height: 64px;
+      max-width: 150px;
+      object-fit: contain;
       margin-bottom: 4px;
     }
     .signature h6 {
@@ -209,14 +211,14 @@
       <h6>Bluverse Digital Hub</h6>
       <p>Email : bluversedigitalhub@gmail.com</p>
       <p>Phone : 03134339915</p>
-      <p>Landline : 0608-304-657</p>
     </div>
     <div class="party">
       <div class="party-label">To</div>
       <h6>${customerName}</h6>
-      <p>City : ${customerCity}</p>
       <p>Email : ${customerEmail}</p>
       <p>Phone : ${customerPhone}</p>
+      ${classTypeRow}
+      ${batchNoRow}
     </div>
     <div class="status-box">
       <div class="party-label">Payment Status</div>
@@ -253,6 +255,7 @@
         <span>Total Amount</span>
         <span>Rs. ${totalAmount}</span>
       </div>
+      ${pendingRow}
     </div>
   </div>
 
@@ -262,12 +265,14 @@
       ${notesSection}
       <div class="terms">
         <h6>Terms &amp; Conditions – Bluverse Digital Hub</h6>
-        <p>
-          All fees are non-refundable under any circumstances.<br />
-          Account sharing is strictly prohibited and may result in permanent suspension.<br />
-          Content misuse, reselling, or piracy will lead to legal action.<br />
-          Students are responsible for submitting accurate enrollment information.
-        </p>
+        <ul style="margin:0; padding-left:16px;">
+          <li>All fees are non-refundable and non-transferable.</li>
+          <li>Course access is granted according to the selected plan.</li>
+          <li>Account sharing is strictly prohibited and may result in suspension.</li>
+          <li>Content redistribution, resale, or piracy may lead to legal action.</li>
+          <li>Students must provide accurate enrollment information.</li>
+          <li>Bluverse Digital Hub reserves the right to suspend access for policy violations.</li>
+        </ul>
       </div>
     </div>
     <div class="signature">

@@ -68,7 +68,12 @@ const StudentInfoSchema = new mongoose.Schema({
   photo: { type: String, default: "" },
   isDisable: { type: Boolean, default: false },
   current_logged_in_locations: { type: [String], default: [] },
-  isDeactivated: { type: Boolean, default: false }
+  isDeactivated: { type: Boolean, default: false },
+  emailVerified: { type: Boolean, default: false },
+  verificationOtp: { type: String, default: "" },
+  verificationOtpExpiry: { type: Date, default: null },
+  resetOtp: { type: String, default: "" },
+  resetOtpExpiry: { type: Date, default: null }
 }, { _id: false });
 
 const AdministrativeSchema = new mongoose.Schema({
