@@ -4,6 +4,7 @@ const Instructor = require("../models/Instructor");
 const Student = require("../models/Student");
 const Course = require("../models/Course");
 const Quiz = require("../models/Quiz");
+const User = require("../models/User");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -159,40 +160,73 @@ router.patch("/:id", upload.single("photo"), async (req, res) => {
       updateFields.photo = await uploadPhotoToS3(req.file);
     }
 
-    // -------- Password change: only if password is present ---------
-    if (password) {
-      const instructor = await Instructor.findById(instructorId);
-      if (!instructor) {
-        return res.status(404).json({ error: "Instructor not found" });
+    // ── Resolve the target record: an Instructor, or a User (e.g. admin) ──
+    const instructor = await Instructor.findById(instructorId);
+
+    if (instructor) {
+      // Password change (instructor) — only if a new password is provided
+      if (password) {
+        const isMatch = await bcrypt.compare(oldPassword, instructor.password);
+        if (!isMatch) {
+          return res.status(400).json({ error: "Current password incorrect." });
+        }
+        updateFields.password = await bcrypt.hash(password, 10);
       }
-      // Verify old password
-      const isMatch = await bcrypt.compare(oldPassword, instructor.password);
-      if (!isMatch) {
-        return res.status(400).json({ error: "Current password incorrect." });
-      }
-      // Hash and set new password
-      updateFields.password = await bcrypt.hash(password, 10);
+
+      const updatedInstructor = await Instructor.findByIdAndUpdate(
+        instructorId,
+        { $set: updateFields },
+        { new: true, runValidators: true }
+      );
+
+      const { password: outPwd, ...instructorWithoutPassword } =
+        updatedInstructor._doc;
+      return res.json({
+        message: "Instructor profile updated",
+        instructor: {
+          id: updatedInstructor._id,
+          ...instructorWithoutPassword,
+        },
+      });
     }
 
-    // Update non-password fields (and password if set above)
-    const updatedInstructor = await Instructor.findByIdAndUpdate(
+    // Fallback: the id belongs to a User account (admin / generic user).
+    // Map the profile fields that exist on the User schema.
+    const userAcc = await User.findById(instructorId);
+    if (!userAcc) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    const userUpdate = {};
+    ["firstName", "lastName", "userName", "photo"].forEach((f) => {
+      if (updateFields[f] !== undefined) userUpdate[f] = updateFields[f];
+    });
+    const fn = updateFields.firstName ?? userAcc.firstName ?? "";
+    const ln = updateFields.lastName ?? userAcc.lastName ?? "";
+    if (fn || ln) userUpdate.name = `${fn} ${ln}`.trim();
+
+    if (password) {
+      if (userAcc.password && oldPassword) {
+        const ok = await bcrypt.compare(oldPassword, userAcc.password);
+        if (!ok) {
+          return res.status(400).json({ error: "Current password incorrect." });
+        }
+      }
+      userUpdate.password = await bcrypt.hash(password, 10);
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
       instructorId,
-      { $set: updateFields },
+      { $set: userUpdate },
       { new: true, runValidators: true }
     );
 
-    if (!updatedInstructor) {
-      return res.status(404).json({ error: "Instructor not found" });
-    }
-
-    // Remove password before returning
-    const { password: outPwd, ...instructorWithoutPassword } =
-      updatedInstructor._doc;
-    res.json({
-      message: "Instructor profile updated",
+    const { password: uPwd, ...userWithoutPassword } = updatedUser._doc;
+    return res.json({
+      message: "Profile updated",
       instructor: {
-        id: updatedInstructor._id,
-        ...instructorWithoutPassword,
+        id: updatedUser._id,
+        ...userWithoutPassword,
       },
     });
   } catch (err) {

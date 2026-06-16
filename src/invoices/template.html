@@ -24,9 +24,16 @@
       border-bottom: 1px solid #ddd;
       margin-bottom: 16px;
     }
-    .header img { height: 60px; display: block; margin-bottom: 6px; }
+    .header img { height: 96px; display: block; margin-bottom: 6px; }
     .header-left p { font-size: 11px; color: #888; margin-top: 4px; }
     .header-right { text-align: right; }
+    .invoice-title {
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #222;
+      margin-bottom: 2px;
+    }
     .invoice-id {
       color: #00bffd;
       font-size: 15px;
@@ -82,6 +89,7 @@
     }
     .status-completed { background: #198754; }
     .status-pending { background: #0dcaf0; }
+    .status-refunded { background: #dc3545; }
     .payment-method {
       font-size: 12px;
       color: #888;
@@ -164,12 +172,12 @@
       color: #555;
     }
     .signature {
-      text-align: right;
-      min-width: 140px;
+      text-align: center;
+      min-width: 160px;
     }
     .signature img {
-      height: 64px;
-      max-width: 150px;
+      height: 110px;
+      max-width: 170px;
       object-fit: contain;
       margin-bottom: 4px;
     }
@@ -198,9 +206,10 @@
       <p>Near HBL Bank Railway Road, Dunyapur, Pakistan</p>
     </div>
     <div class="header-right">
+      <div class="invoice-title">INVOICE</div>
       <div class="invoice-id">#${invoiceId}</div>
-      <p>Created : ${createdDate}</p>
-      <p>Due : ${dueDate}</p>
+      <p>Invoice Date : ${createdDate}</p>
+      ${enrollmentRow}
     </div>
   </div>
 

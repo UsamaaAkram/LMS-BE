@@ -35,10 +35,11 @@ const InvoiceSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ["Pending", "Completed"],
+      enum: ["Pending", "Completed", "Refunded"],
       default: "Pending",
     },
-    dueDate: { type: Date, required: true },
+    enrollmentDate: { type: Date, default: null }, // replaces Due Date on the receipt
+    dueDate: { type: Date }, // legacy / optional
     notes: { type: String, default: "" },
     pdfUrl: { type: String, default: "" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },

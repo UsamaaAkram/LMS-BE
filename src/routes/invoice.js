@@ -10,6 +10,7 @@ router.post("/", invoiceController.createInvoice);
 router.get("/", invoiceController.getAllInvoices);
 router.get("/:id", invoiceController.getInvoice);
 router.put("/:id", invoiceController.updateInvoice);
+router.post("/:id/regenerate-pdf", invoiceController.regenerateInvoicePdf);
 router.delete("/:id", invoiceController.deleteInvoice);
 
 module.exports = router;

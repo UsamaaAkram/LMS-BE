@@ -63,12 +63,20 @@ async function buildInvoiceHtml(invoice, createdByName) {
   const createdDate = new Date(invoice.createdAt).toLocaleDateString("en-US", {
     year: "numeric", month: "short", day: "numeric",
   });
-  const dueDateFormatted = new Date(invoice.dueDate).toLocaleDateString("en-US", {
-    year: "numeric", month: "short", day: "numeric",
-  });
+  // Enrollment Date (replaces Due Date on the receipt) — shown only if set
+  const enrollmentRow = invoice.enrollmentDate
+    ? `<p>Enrollment Date : ${new Date(invoice.enrollmentDate).toLocaleDateString(
+        "en-US",
+        { year: "numeric", month: "short", day: "numeric" }
+      )}</p>`
+    : "";
 
   const statusBadgeClass =
-    invoice.paymentStatus === "Completed" ? "status-completed" : "status-pending";
+    invoice.paymentStatus === "Completed"
+      ? "status-completed"
+      : invoice.paymentStatus === "Refunded"
+      ? "status-refunded"
+      : "status-pending";
 
   const discountRow =
     invoice.discountAmount > 0
@@ -105,7 +113,6 @@ async function buildInvoiceHtml(invoice, createdByName) {
   html = html
     .replace(/\$\{invoiceId\}/g, invoice.invoiceId)
     .replace(/\$\{createdDate\}/g, createdDate)
-    .replace(/\$\{dueDate\}/g, dueDateFormatted)
     .replace(/\$\{customerName\}/g, invoice.customerName)
     .replace(/\$\{customerEmail\}/g, invoice.customerEmail)
     .replace(/\$\{customerPhone\}/g, invoice.customerPhone)
@@ -121,6 +128,7 @@ async function buildInvoiceHtml(invoice, createdByName) {
   // These contain HTML with $ signs, so use split/join
   html = html.split("${discountRow}").join(discountRow);
   html = html.split("${pendingRow}").join(pendingRow);
+  html = html.split("${enrollmentRow}").join(enrollmentRow);
   html = html.split("${classTypeRow}").join(classTypeRow);
   html = html.split("${batchNoRow}").join(batchNoRow);
   html = html.split("${notesSection}").join(notesSection);
@@ -160,7 +168,7 @@ exports.createInvoice = async (req, res) => {
       discount,
       paymentMethod,
       paymentStatus,
-      dueDate,
+      enrollmentDate,
       notes,
       pendingAmount,
       pendingAmountDate,
@@ -175,7 +183,6 @@ exports.createInvoice = async (req, res) => {
       !Array.isArray(items) ||
       items.length === 0 ||
       !paymentMethod ||
-      !dueDate ||
       !createdBy
     ) {
       return res
@@ -248,7 +255,7 @@ exports.createInvoice = async (req, res) => {
       amountInWords: amountWords,
       paymentMethod,
       paymentStatus: paymentStatus || "Pending",
-      dueDate,
+      enrollmentDate: enrollmentDate || null,
       notes: notes || "",
       createdBy,
     });
@@ -328,7 +335,7 @@ exports.updateInvoice = async (req, res) => {
     const {
       paymentStatus,
       paymentMethod,
-      dueDate,
+      enrollmentDate,
       notes,
       classType,
       batchNo,
@@ -339,7 +346,8 @@ exports.updateInvoice = async (req, res) => {
     const updateFields = {};
     if (paymentStatus) updateFields.paymentStatus = paymentStatus;
     if (paymentMethod) updateFields.paymentMethod = paymentMethod;
-    if (dueDate) updateFields.dueDate = dueDate;
+    if (enrollmentDate !== undefined)
+      updateFields.enrollmentDate = enrollmentDate || null;
     if (notes !== undefined) updateFields.notes = notes;
     if (classType !== undefined) updateFields.classType = classType;
     if (batchNo !== undefined) updateFields.batchNo = batchNo;
@@ -388,6 +396,34 @@ exports.deleteInvoice = async (req, res) => {
     const invoice = await Invoice.findByIdAndDelete(req.params.id);
     if (!invoice) return res.status(404).json({ error: "Invoice not found" });
     res.json({ message: "Invoice deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * REGENERATE the invoice PDF (for older invoices whose pdfUrl is missing/broken)
+ */
+exports.regenerateInvoicePdf = async (req, res) => {
+  try {
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+
+    let createdByName = "Admin";
+    try {
+      const adminUser = await User.findById(invoice.createdBy).select("name userName");
+      if (adminUser) createdByName = adminUser.name || adminUser.userName || "Admin";
+    } catch (e) {}
+
+    const html = await buildInvoiceHtml(invoice, createdByName);
+    const pdfBuffer = await generateInvoicePdfBuffer(html);
+    const filename = `invoice_${invoice.invoiceId}.pdf`;
+    const pdfUrl = await uploadInvoicePdfToS3(pdfBuffer, filename);
+
+    invoice.pdfUrl = pdfUrl;
+    await invoice.save();
+
+    res.json(invoice);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
