@@ -88,9 +88,67 @@ async function sendPasswordResetEmail(to, name, otp) {
   });
 }
 
+const SITE_URL = "https://bluversedigitalhub.com";
+const LOGIN_URL = `${SITE_URL}/login`;
+
+// Email #1 — Account Created (sent when an admin creates an account)
+async function sendAccountCreatedEmail(to, name, loginEmail, tempPassword) {
+  const subject = "Welcome to Bluverse Digital Hub – Your LMS Account is Ready";
+  const html = `
+    <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:auto;color:#333;">
+      <h2 style="color:#00bffd;">Bluverse Digital Hub</h2>
+      <p>Hi ${name || "there"},</p>
+      <p>Your LMS account has been created. Here are your login details:</p>
+      <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Login Email</td><td style="font-weight:600;">${loginEmail}</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Temporary Password</td><td style="font-weight:600;">${tempPassword}</td></tr>
+      </table>
+      <p><a href="${LOGIN_URL}" style="display:inline-block;background:#00bffd;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Login Now</a></p>
+      <p style="color:#888;font-size:13px;">For your security, please change your password after your first login.</p>
+      <p style="margin-top:24px;">Best Regards,<br/>Bluverse Digital Hub Team<br/><em>Learn. Earn. Dominate.</em></p>
+    </div>`;
+  return sendMail({
+    to,
+    subject,
+    html,
+    text: `Welcome to Bluverse Digital Hub. Login: ${loginEmail} / Temporary password: ${tempPassword}. Sign in at ${LOGIN_URL}`,
+  });
+}
+
+// Email #2 — Enrollment Confirmed (sent when a student is enrolled in a course)
+async function sendEnrollmentConfirmedEmail(to, name, courseName, opts = {}) {
+  const communityUrl = opts.communityUrl || "";
+  const whatsappUrl = opts.whatsappUrl || "";
+  const subject = "Enrollment Confirmed";
+  const html = `
+    <div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:auto;color:#333;">
+      <h2 style="color:#00bffd;">Bluverse Digital Hub</h2>
+      <p>Hi ${name || "there"},</p>
+      <p>Congratulations! 🎉</p>
+      <p>You have successfully enrolled in the <strong>${courseName}</strong>. Your course is now available in your Bluverse Digital Hub LMS account. Use the links below to access your course, join the community, and get started.</p>
+      <p><strong>Quick Links</strong></p>
+      <ul>
+        <li>📘 Bluverse Digital Hub LMS: <a href="${SITE_URL}/index">Click Here</a></li>
+        ${communityUrl ? `<li>👥 Community Access: <a href="${communityUrl}">Join</a></li>` : ""}
+        <li>🔑 Login: <a href="${LOGIN_URL}">Click Here</a></li>
+      </ul>
+      ${whatsappUrl ? `<p>💬 WhatsApp Support: <a href="${whatsappUrl}">${whatsappUrl}</a></p>` : ""}
+      <p>Happy Learning!</p>
+      <p style="margin-top:24px;">— The Bluverse Digital Hub Team</p>
+    </div>`;
+  return sendMail({
+    to,
+    subject,
+    html,
+    text: `You have successfully enrolled in ${courseName}. Access it in your Bluverse Digital Hub LMS account: ${SITE_URL}/index`,
+  });
+}
+
 module.exports = {
   sendMail,
   sendVerificationEmail,
   sendPasswordResetEmail,
+  sendAccountCreatedEmail,
+  sendEnrollmentConfirmedEmail,
   generateOtp,
 };

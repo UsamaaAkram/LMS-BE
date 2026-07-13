@@ -16,6 +16,8 @@ const calculateProgress = require("../utils/calculateProgress");
 const {
   sendVerificationEmail,
   sendPasswordResetEmail,
+  sendAccountCreatedEmail,
+  sendEnrollmentConfirmedEmail,
   generateOtp,
 } = require("../utils/mailer");
 
@@ -199,6 +201,12 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
       }
     }
 
+    // Admin-created (from the admin "Add Student" flow) vs public self-signup
+    const adminCreated =
+      req.body.sendCredentials === true ||
+      req.body.sendCredentials === "true" ||
+      req.body.createdByAdmin === true;
+
     // Email verification OTP (valid 15 minutes)
     const otp = generateOtp();
     const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
@@ -222,9 +230,11 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
         isDisable: isDisable !== undefined ? isDisable : true,
         current_logged_in_locations: [],
         isDeactivated: isDeactivated !== undefined ? isDeactivated : false,
-        emailVerified: false,
-        verificationOtp: otp,
-        verificationOtpExpiry: otpExpiry,
+        // Admin-created accounts are pre-verified (they get a credentials email);
+        // self-signup goes through the OTP verification flow.
+        emailVerified: adminCreated ? true : false,
+        verificationOtp: adminCreated ? "" : otp,
+        verificationOtpExpiry: adminCreated ? null : otpExpiry,
       },
       administrative: {
         batch: batch || "",
@@ -248,13 +258,24 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
     const newStudent = new Student(studentDoc);
     await newStudent.save();
 
-    // Send verification email (don't fail signup if SMTP errors)
+    // Send the right email (don't fail signup if SMTP errors):
+    //  - admin-created → Account Created (login email + temp password)
+    //  - self-signup   → verification OTP
     let emailSent = false;
     try {
-      await sendVerificationEmail(email, firstName || userName, otp);
+      if (adminCreated) {
+        await sendAccountCreatedEmail(
+          email,
+          firstName || userName,
+          email,
+          password
+        );
+      } else {
+        await sendVerificationEmail(email, firstName || userName, otp);
+      }
       emailSent = true;
     } catch (mailErr) {
-      console.error("Verification email failed:", mailErr.message);
+      console.error("Signup email failed:", mailErr.message);
     }
 
     // Do not return password / OTP
@@ -577,6 +598,29 @@ router.patch("/:id", upload.single("photo"), async (req, res) => {
         }
       }
       if (needsSave) await updatedStudent.save();
+
+      // Email #2 — Enrollment Confirmed for each newly added course
+      if (newlyAddedCourses.length) {
+        const studentEmail = updatedStudent.student?.email;
+        const studentName =
+          updatedStudent.student?.firstName ||
+          updatedStudent.student?.userName;
+        for (const courseID of newlyAddedCourses) {
+          try {
+            const course = await Course.findById(courseID).select(
+              "courseTitle"
+            );
+            await sendEnrollmentConfirmedEmail(
+              studentEmail,
+              studentName,
+              course?.courseTitle || "your course",
+              { whatsappUrl: "https://wa.me/message/WBFSRFPHA72OI1" }
+            );
+          } catch (mailErr) {
+            console.error("Enrollment email failed:", mailErr.message);
+          }
+        }
+      }
     }
 
     const responseDoc = updatedStudent.toObject();
@@ -628,6 +672,10 @@ router.get("/summary", async (req, res) => {
     if (studentType) query["administrative.studentType"] = studentType;
     if (shift) query["administrative.shift"] = shift;
     if (enrollmentDate) query["administrative.enrollmentDate"] = enrollmentDate;
+    // Only students enrolled in at least one course
+    if (req.query.enrolled === "true") {
+      query["enrolledCourses.0"] = { $exists: true };
+    }
 
     // Student name search: match first or last name (case insensitive, partial available)
     if (studentName) {

@@ -40,8 +40,11 @@ const InvoiceSchema = new mongoose.Schema(
     },
     enrollmentDate: { type: Date, default: null }, // replaces Due Date on the receipt
     dueDate: { type: Date }, // legacy / optional
+    mode: { type: String, enum: ["online", "onsite"], default: "online" }, // record type
     notes: { type: String, default: "" },
     pdfUrl: { type: String, default: "" },
+    isDeleted: { type: Boolean, default: false }, // soft delete (kept for audit)
+    deletedAt: { type: Date, default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }

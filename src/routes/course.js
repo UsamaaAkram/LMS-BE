@@ -57,6 +57,8 @@ router.post("/", upload.single("courseThumbnail"), async (req, res) => {
       courseThumbnailUrl, // Permanent public S3 URL
       courseVideoProvider: req.body.courseVideoProvider,
       courseVideoUrl: req.body.courseVideoUrl,
+      price: Number(req.body.price) || 0,
+      originalPrice: Number(req.body.originalPrice) || 0,
       curriculum,
       studentCount: req.body.studentCount || 0,
       quizzesCount: req.body.quizzesCount || 0,

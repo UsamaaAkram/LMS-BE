@@ -169,6 +169,7 @@ exports.createInvoice = async (req, res) => {
       paymentMethod,
       paymentStatus,
       enrollmentDate,
+      mode,
       notes,
       pendingAmount,
       pendingAmountDate,
@@ -256,6 +257,7 @@ exports.createInvoice = async (req, res) => {
       paymentMethod,
       paymentStatus: paymentStatus || "Pending",
       enrollmentDate: enrollmentDate || null,
+      mode: mode === "onsite" ? "onsite" : "online",
       notes: notes || "",
       createdBy,
     });
@@ -295,15 +297,23 @@ exports.createInvoice = async (req, res) => {
 exports.getAllInvoices = async (req, res) => {
   try {
     const query = {};
+    // Deleted invoices are hidden unless explicitly requested (superadmin view)
+    query.isDeleted = req.query.deleted === "true" ? true : { $ne: true };
+    if (req.query.mode) query.mode = req.query.mode; // online | onsite
     if (req.query.paymentStatus) query.paymentStatus = req.query.paymentStatus;
     if (req.query.paymentMethod) query.paymentMethod = req.query.paymentMethod;
     if (req.query.customerCity) {
       query.customerCity = { $regex: req.query.customerCity, $options: "i" };
     }
+    if (req.query.batchNo) {
+      query.batchNo = { $regex: req.query.batchNo, $options: "i" };
+    }
     if (req.query.search) {
+      // Filter by receipt id, name, email or phone
       query.$or = [
         { customerName: { $regex: req.query.search, $options: "i" } },
         { customerEmail: { $regex: req.query.search, $options: "i" } },
+        { customerPhone: { $regex: req.query.search, $options: "i" } },
         { invoiceId: { $regex: req.query.search, $options: "i" } },
       ];
     }
@@ -393,9 +403,31 @@ exports.updateInvoice = async (req, res) => {
  */
 exports.deleteInvoice = async (req, res) => {
   try {
-    const invoice = await Invoice.findByIdAndDelete(req.params.id);
+    // Soft delete — kept in the DB (audit) and shown in the superadmin "Deleted" view
+    const invoice = await Invoice.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isDeleted: true, deletedAt: new Date() } },
+      { new: true }
+    );
     if (!invoice) return res.status(404).json({ error: "Invoice not found" });
-    res.json({ message: "Invoice deleted successfully" });
+    res.json({ message: "Invoice moved to Deleted", id: req.params.id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * RESTORE a soft-deleted invoice
+ */
+exports.restoreInvoice = async (req, res) => {
+  try {
+    const invoice = await Invoice.findByIdAndUpdate(
+      req.params.id,
+      { $set: { isDeleted: false, deletedAt: null } },
+      { new: true }
+    );
+    if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+    res.json({ message: "Invoice restored", invoice });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

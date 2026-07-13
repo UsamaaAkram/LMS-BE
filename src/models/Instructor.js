@@ -43,12 +43,12 @@ const InstructorSchema = new mongoose.Schema({
     type: [ 
       {
         name: { type: String, enum: [
-          'courses', 'assignments', 'students', 
-          'quiz', 'quizResults', 'certificates', 'messages', 'tickets'
+          'courses', 'assignments', 'students',
+          'quiz', 'quizResults', 'certificates', 'messages', 'tickets', 'receipts'
         ], required: true },
         isDisable: { type: Boolean, default: true }
       }
-    ], 
+    ],
     default: [
       { name: 'courses', isDisable: true },
       { name: 'assignments', isDisable: true },
@@ -57,7 +57,8 @@ const InstructorSchema = new mongoose.Schema({
       { name: 'quizResults', isDisable: true },
       { name: 'certificates', isDisable: true },
       { name: 'messages', isDisable: true },
-      { name: 'tickets', isDisable: true }
+      { name: 'tickets', isDisable: true },
+      { name: 'receipts', isDisable: true }
     ]
   },
 

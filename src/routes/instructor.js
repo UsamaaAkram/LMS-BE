@@ -5,6 +5,7 @@ const Student = require("../models/Student");
 const Course = require("../models/Course");
 const Quiz = require("../models/Quiz");
 const User = require("../models/User");
+const { sendAccountCreatedEmail } = require("../utils/mailer");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -124,6 +125,19 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
     });
 
     await instructor.save();
+
+    // Email #1 — Account Created (with the credentials the admin set)
+    try {
+      await sendAccountCreatedEmail(
+        email,
+        firstName || userName,
+        email,
+        password
+      );
+    } catch (mailErr) {
+      console.error("Account-created email failed:", mailErr.message);
+    }
+
     res.status(201).json({ message: "Instructor registered", instructor });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -351,6 +365,19 @@ router.get("/:id", async (req, res) => {
         ...instructorWithoutPassword,
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE an instructor (admin action)
+router.delete("/:id", async (req, res) => {
+  try {
+    const instructor = await Instructor.findByIdAndDelete(req.params.id);
+    if (!instructor) {
+      return res.status(404).json({ error: "Instructor not found" });
+    }
+    res.json({ message: "Instructor deleted", id: req.params.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

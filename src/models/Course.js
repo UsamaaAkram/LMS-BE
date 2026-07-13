@@ -22,6 +22,8 @@ const CourseSchema = new mongoose.Schema(
     courseThumbnailUrl: { type: String },
     courseVideoProvider: { type: String },
     courseVideoUrl: { type: String },
+    price: { type: Number, default: 0 }, // discounted / actual price shown
+    originalPrice: { type: Number, default: 0 }, // crossed-out compare-at price
     studentCount: { type: Number, default: 0 },
     quizzesCount: { type: Number, default: 0 },
     curriculum: [CurriculumSchema],
