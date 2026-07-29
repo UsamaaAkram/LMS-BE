@@ -10,6 +10,15 @@ const GuardianSchema = new mongoose.Schema({
 }, { _id: false });
 
 
+const SessionSchema = new mongoose.Schema({
+  sessionId: { type: String, required: true }, // JWT jti
+  device: { type: String, default: "Unknown device" },
+  browser: { type: String, default: "Unknown browser" },
+  ip: { type: String, default: "" },
+  loginTime: { type: Date, default: Date.now },
+  lastActiveTime: { type: Date, default: Date.now },
+}, { _id: false });
+
 const CertificateSchema = new mongoose.Schema({
   id: { type: String, required: true },
   title: { type: String, required: true },
@@ -67,7 +76,8 @@ const StudentInfoSchema = new mongoose.Schema({
   bio: { type: String, default: "" },
   photo: { type: String, default: "" },
   isDisable: { type: Boolean, default: false },
-  current_logged_in_locations: { type: [String], default: [] },
+  // Up to 2 concurrent device sessions; see routes/auth.js login/logout.
+  activeSessions: { type: [SessionSchema], default: [] },
   isDeactivated: { type: Boolean, default: false },
   emailVerified: { type: Boolean, default: false },
   verificationOtp: { type: String, default: "" },
@@ -100,12 +110,13 @@ const StudentSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
-// Set isDeactivated if current_logged_in_locations > 2
+// Safety net: login enforces a 2-session cap, so more than 2 here indicates
+// a bypass/bug — deactivate the account rather than silently allow it.
 StudentSchema.pre('save', function(next) {
   if (
     this.student &&
-    Array.isArray(this.student.current_logged_in_locations) &&
-    this.student.current_logged_in_locations.length > 2
+    Array.isArray(this.student.activeSessions) &&
+    this.student.activeSessions.length > 2
   ) {
     this.student.isDeactivated = true;
   }
@@ -115,8 +126,8 @@ StudentSchema.pre('findOneAndUpdate', function(next) {
   const update = this.getUpdate();
   if (
     update.student &&
-    Array.isArray(update.student.current_logged_in_locations) &&
-    update.student.current_logged_in_locations.length > 2
+    Array.isArray(update.student.activeSessions) &&
+    update.student.activeSessions.length > 2
   ) {
     update.student.isDeactivated = true;
   }

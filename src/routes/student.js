@@ -108,7 +108,6 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
       age,
       bio,
       isDisable,
-      current_logged_in_locations,
       isDeactivated,
 
       // administrative
@@ -228,7 +227,6 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
         bio: bio || "",
         photo: photoUrl,
         isDisable: isDisable !== undefined ? isDisable : true,
-        current_logged_in_locations: [],
         isDeactivated: isDeactivated !== undefined ? isDeactivated : false,
         // Admin-created accounts are pre-verified (they get a credentials email);
         // self-signup goes through the OTP verification flow.
@@ -554,7 +552,6 @@ router.patch("/:id", upload.single("photo"), async (req, res) => {
       "age",
       "bio",
       "isDisable",
-      "current_logged_in_locations",
       "isDeactivated",
     ];
     for (const f of flatFields) {
