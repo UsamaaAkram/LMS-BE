@@ -77,6 +77,24 @@ router.post("/", upload.single("courseThumbnail"), async (req, res) => {
 });
 
 // GET ALL or FILTER by status (unchanged)
+// studentCount used to be a static field set (or not) at creation time and
+// never updated as students enrolled/left — hence "Enrolled: 0" even with
+// real enrollments. Enrollment.model is unused (see delete handler below);
+// Student.enrolledCourses is the actual source of truth, so compute live.
+async function attachLiveStudentCounts(courses) {
+  const ids = courses.map((c) => c._id.toString());
+  const counts = await Student.aggregate([
+    { $match: { enrolledCourses: { $in: ids } } },
+    { $unwind: "$enrolledCourses" },
+    { $match: { enrolledCourses: { $in: ids } } },
+    { $group: { _id: "$enrolledCourses", count: { $sum: 1 } } },
+  ]);
+  const countById = Object.fromEntries(counts.map((c) => [c._id, c.count]));
+  courses.forEach((c) => {
+    c.studentCount = countById[c._id.toString()] || 0;
+  });
+}
+
 router.get("/", async (req, res) => {
   try {
     const query = {};
@@ -85,6 +103,7 @@ router.get("/", async (req, res) => {
       query.courseTitle = { $regex: req.query.search, $options: "i" };
     }
     const courses = await Course.find(query);
+    await attachLiveStudentCounts(courses);
     res.json(courses);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -96,6 +115,7 @@ router.get("/:id", async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
     if (!course) return res.status(404).json({ error: "Not found" });
+    await attachLiveStudentCounts([course]);
     res.json(course);
   } catch (err) {
     res.status(400).json({ error: err.message });
