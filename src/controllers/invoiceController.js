@@ -406,7 +406,14 @@ exports.deleteInvoice = async (req, res) => {
     // Soft delete — kept in the DB (audit) and shown in the superadmin "Deleted" view
     const invoice = await Invoice.findByIdAndUpdate(
       req.params.id,
-      { $set: { isDeleted: true, deletedAt: new Date() } },
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: req.user?.email || "",
+          deletedByRole: req.user?.role || "",
+        },
+      },
       { new: true }
     );
     if (!invoice) return res.status(404).json({ error: "Invoice not found" });

@@ -45,6 +45,10 @@ const InvoiceSchema = new mongoose.Schema(
     pdfUrl: { type: String, default: "" },
     isDeleted: { type: Boolean, default: false }, // soft delete (kept for audit)
     deletedAt: { type: Date, default: null },
+    // Not cleared on restore — preserves who/when for audit history (#7)
+    // even after an invoice is brought back.
+    deletedBy: { type: String, default: "" },
+    deletedByRole: { type: String, default: "" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }
