@@ -1,4 +1,4 @@
-require("dotenv").config();
+﻿require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http"); // For Socket.IO support
@@ -50,6 +50,10 @@ app.use("/api/invoices", require("./routes/invoice"));
 
 // VdoCipher (DRM video) Routes
 app.use("/api/videos", require("./routes/video"));
+
+// Shop (#42/#43)
+app.use("/api/products", require("./routes/product"));
+app.use("/api/orders", require("./routes/order"));
 
 const { chatSocket, getSocketIdByUserId } = require("./sockets/chatSocket");
 chatSocket(io);
