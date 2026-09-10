@@ -1,7 +1,10 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const router = express.Router();
 const Student = require("../models/Student");
+const Course = require("../models/Course");
 const jwtAuth = require("../middleware/jwtAuth");
+const { checkPlanExpiry } = require("../utils/courseAccess");
 
 // POST /api/videos/:videoId/otp
 // Returns a short-lived VdoCipher OTP + playbackInfo for the secure player.
@@ -22,16 +25,38 @@ router.post("/:videoId/otp", jwtAuth, async (req, res) => {
 
     // Enrollment gate — only students are restricted; instructors/admins pass.
     if (req.user.role === "student") {
-      if (!courseId) {
-        return res.status(400).json({ error: "courseId is required" });
+      if (!courseId || !mongoose.Types.ObjectId.isValid(courseId)) {
+        return res.status(400).json({ error: "A valid courseId is required" });
       }
-      const student = await Student.findById(req.user.id);
-      if (!student) return res.status(404).json({ error: "Student not found" });
-      const enrolled = (student.enrolledCourses || []).some(
-        (c) => c.toString() === courseId.toString()
-      );
-      if (!enrolled) {
-        return res.status(403).json({ error: "Not enrolled in this course" });
+      const course = await Course.findById(courseId);
+      if (!course) return res.status(404).json({ error: "Course not found" });
+      if (!course.freeAccess) {
+        const student = await Student.findById(req.user.id);
+        if (!student)
+          return res.status(404).json({ error: "Student not found" });
+        const enrolled = (student.enrolledCourses || []).some(
+          (c) => c.toString() === courseId.toString()
+        );
+        if (!enrolled) {
+          return res.status(403).json({ error: "Not enrolled in this course" });
+        }
+
+        // #47.9 — a time-limited plan that has run out. Checked AFTER the
+        // enrollment gate above, which is unchanged: this only removes access
+        // from someone whose paid window has genuinely elapsed. Lifetime plans
+        // and admin-enrolled students are never affected.
+        const { expired, expiresAt } = await checkPlanExpiry(
+          req.user.id,
+          courseId
+        );
+        if (expired) {
+          return res.status(403).json({
+            error: "Your access to this course expired on " +
+              expiresAt.toISOString().slice(0, 10) +
+              ". Renew to continue watching.",
+            code: "ACCESS_EXPIRED",
+          });
+        }
       }
     }
 

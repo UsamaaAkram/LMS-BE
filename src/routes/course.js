@@ -6,6 +6,7 @@ const Assignment = require("../models/Assignment");
 const Quiz = require("../models/Quiz");
 const Instructor = require("../models/Instructor");
 const Enrollment = require("../models/Enrollment");
+const { uniqueSlug } = require("../utils/slugify");
 const multer = require("multer");
 const upload = multer();
 
@@ -29,6 +30,21 @@ router.post("/", upload.single("courseThumbnail"), async (req, res) => {
         typeof req.body.curriculum === "string"
           ? JSON.parse(req.body.curriculum)
           : req.body.curriculum;
+    }
+
+    // #47 plans — arrive JSON-encoded over multipart. Tolerate malformed input
+    // rather than 500ing the whole course creation over one bad field.
+    let plans = [];
+    if (req.body.plans) {
+      try {
+        plans =
+          typeof req.body.plans === "string"
+            ? JSON.parse(req.body.plans)
+            : req.body.plans;
+      } catch {
+        plans = [];
+      }
+      if (!Array.isArray(plans)) plans = [];
     }
 
     let courseThumbnailUrl = "";
@@ -57,8 +73,13 @@ router.post("/", upload.single("courseThumbnail"), async (req, res) => {
       courseThumbnailUrl, // Permanent public S3 URL
       courseVideoProvider: req.body.courseVideoProvider,
       courseVideoUrl: req.body.courseVideoUrl,
-      price: Number(req.body.price) || 0,
-      originalPrice: Number(req.body.originalPrice) || 0,
+      // #18: kept as free text so "Free" / "Contact Us" / "Rs. 15,000" all
+      // survive. Number() here used to silently turn every label into 0.
+      price: req.body.price || "",
+      originalPrice: req.body.originalPrice || "",
+      // This route is multipart, so a boolean arrives as the string "true".
+      freeAccess:
+        req.body.freeAccess === true || req.body.freeAccess === "true",
       curriculum,
       studentCount: req.body.studentCount || 0,
       quizzesCount: req.body.quizzesCount || 0,
@@ -66,6 +87,13 @@ router.post("/", upload.single("courseThumbnail"), async (req, res) => {
       status: req.body.status,
       duration: req.body.duration,
       createdBy: req.body.createdBy,
+      lmsGuideTitle: req.body.lmsGuideTitle || "",
+      lmsGuideDescription: req.body.lmsGuideDescription || "",
+      lmsGuideVdoId: req.body.lmsGuideVdoId || "",
+      plans,
+      // #48 — derived from the title, de-duplicated. An admin-supplied slug
+      // wins so a course URL can be curated.
+      slug: await uniqueSlug(Course, req.body.slug || req.body.courseTitle),
     };
 
     const course = new Course(courseData);
@@ -122,13 +150,49 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// UPDATE by id (unchanged logic)
+// UPDATE by id
 router.put("/:id", async (req, res) => {
   try {
-    const course = await Course.findByIdAndUpdate(req.params.id, req.body, {
+    const body = { ...req.body };
+
+    // #48 — keep a slug present and unique.
+    //
+    // Deliberately NOT re-slugged on every title edit: the slug is a public URL
+    // that may already be shared or indexed, and silently changing it would
+    // break those links. It's only filled in when missing, or when an admin
+    // sends one explicitly.
+    const existing = await Course.findById(req.params.id).select("slug");
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (body.slug) {
+      body.slug = await uniqueSlug(Course, body.slug, req.params.id);
+    } else if (!existing.slug) {
+      body.slug = await uniqueSlug(
+        Course,
+        body.courseTitle || "course",
+        req.params.id
+      );
+    } else {
+      delete body.slug; // leave the current one alone
+    }
+
+    const course = await Course.findByIdAndUpdate(req.params.id, body, {
       new: true,
     });
     if (!course) return res.status(404).json({ error: "Not found" });
+    res.json(course);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// GET one by slug (#48) — powers /courses/<slug> without exposing an id.
+// Registered before "/:id" would matter, but the distinct /slug/ prefix keeps
+// the two from ever being ambiguous.
+router.get("/slug/:slug", async (req, res) => {
+  try {
+    const course = await Course.findOne({ slug: req.params.slug });
+    if (!course) return res.status(404).json({ error: "Course not found" });
+    await attachLiveStudentCounts([course]);
     res.json(course);
   } catch (err) {
     res.status(400).json({ error: err.message });

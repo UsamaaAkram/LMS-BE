@@ -40,6 +40,52 @@ const AssignmentSchema = new mongoose.Schema({
   assignmentsID: { type: String, required: true },
   assignmentDate: { type: String, default: null },
   assignment: { type: String, default: null },
+  // Full submission workflow (#27) — status/marks/feedback/attachments,
+  // replacing the old plain isSubmitted boolean.
+  status: {
+    type: String,
+    enum: ["Pending", "Under Review", "Reviewed", "Needs Revision", "Completed"],
+    default: "Pending",
+  },
+  links: { type: [String], default: [] },
+  fileUrl: { type: String, default: "" },
+  // #27.2 — filename, type and size of the uploaded submission, so the
+  // instructor sees "niche-analysis.pdf (240 KB)" rather than a storage key.
+  // fileUrl above is retained for submissions made before this existed.
+  file: { type: Object, default: null },
+  marks: { type: Number, default: null },
+  feedback: { type: String, default: "" },
+  submittedAt: { type: Date, default: null },
+  reviewedAt: { type: Date, default: null },
+}, { _id: false });
+
+// #34 — one answered question, kept for the instructor's attempt review.
+//
+// The question and choice TEXT are snapshotted, not just their ids. A quiz
+// edited after a student sat it would otherwise make their past attempt
+// unreadable — or worse, show them against a question they never saw.
+const QuizAnswerSchema = new mongoose.Schema({
+  questionID: { type: String, default: "" },
+  questionText: { type: String, default: "" },
+  selectedAnswerID: { type: String, default: "" },
+  selectedAnswerText: { type: String, default: "" },
+  correctAnswerID: { type: String, default: "" },
+  correctAnswerText: { type: String, default: "" },
+  isCorrect: { type: Boolean, default: false },
+  marksAwarded: { type: Number, default: 0 },
+  explanation: { type: String, default: "" },
+}, { _id: false });
+
+// #34 — a single sitting, so "Attempt 1 / 2 / 3" history is possible.
+const QuizAttemptSchema = new mongoose.Schema({
+  attemptNumber: { type: Number, default: 1 },
+  marks: { type: Number, default: 0 },
+  totalMarks: { type: Number, default: 0 },
+  percentage: { type: Number, default: 0 },
+  passed: { type: Boolean, default: false },
+  timeTakenSeconds: { type: Number, default: null },
+  attemptedAt: { type: String, default: "" },
+  answers: { type: [QuizAnswerSchema], default: [] },
 }, { _id: false });
 
 const QuizSchema = new mongoose.Schema({
@@ -49,6 +95,11 @@ const QuizSchema = new mongoose.Schema({
   quizID: { type: String, required: true },
   lastAttemptDate: { type: String, default: "" },
   completed: { type: Boolean, default: false },
+  // #34 — per-question detail. The submit route already received the answers
+  // and evaluated them to produce a mark, then discarded them, which is why
+  // reviewing an attempt was impossible. Now retained.
+  // Attempts before this existed simply have an empty history.
+  attempts: { type: [QuizAttemptSchema], default: [] },
 }, { _id: false });
 
 const ProgressSchema = new mongoose.Schema({

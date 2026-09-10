@@ -50,6 +50,30 @@ async function uploadPhotoToS3(file) {
   return `https://${BUCKET}.s3.ap-southeast-2.amazonaws.com/${key}`;
 }
 
+// #27.2 — assignment submission attachment.
+//
+// The submission already had a fileUrl field and the route already accepted
+// one, but nothing ever produced a URL, so file upload was effectively
+// unavailable. Returns an object so the instructor's review panel can show the
+// original filename and size rather than a raw storage key.
+async function uploadAssignmentFileToS3(file) {
+  const key = `assignment-submissions/${Date.now()}-${file.originalname}`;
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+    })
+  );
+  return {
+    url: `https://${BUCKET}.s3.ap-southeast-2.amazonaws.com/${key}`,
+    originalname: file.originalname,
+    mimetype: file.mimetype,
+    size: file.size,
+  };
+}
+
 // S3 upload helper for certificate PDF
 async function uploadCertificateToS3(pdfBuffer, filename) {
   const key = `certificates/${Date.now()}-${filename}`;
@@ -326,6 +350,12 @@ router.post("/verify-email", async (req, res) => {
     student.student.emailVerified = true;
     student.student.verificationOtp = "";
     student.student.verificationOtpExpiry = null;
+    // Auto-approve on verification (#1) — isDisable defaults to true at
+    // signup (a pending-approval gate), but nothing ever cleared it for
+    // students once they verified, so every self-signup stayed stuck on
+    // the "Account Pending Approval" screen until an admin manually
+    // flipped it. Instructor signups keep their own approval gate as-is.
+    student.student.isDisable = false;
     await student.save();
 
     res.json({ message: "Email verified successfully." });
@@ -651,6 +681,7 @@ router.get("/summary", async (req, res) => {
       studentName,
       enrollmentDate,
       email,
+      course,
     } = req.query;
 
     // Build Mongoose query
@@ -673,6 +704,8 @@ router.get("/summary", async (req, res) => {
     if (req.query.enrolled === "true") {
       query["enrolledCourses.0"] = { $exists: true };
     }
+    // #35: filter by a specific course (searchable dropdown on the FE)
+    if (course) query.enrolledCourses = course;
 
     // Student name search: match first or last name (case insensitive, partial available)
     if (studentName) {
@@ -706,9 +739,15 @@ router.get("/summary", async (req, res) => {
       enrollmentDate: s.administrative?.enrollmentDate || "",
       branch: s.administrative?.enrolledBranch || "",
       email: s.student?.email || "",
+      // Course Progress (#31/T5.9) — average % across all enrolled
+      // courses, not just the first progress record (that missed every
+      // course but the student's first enrollment).
       percent:
         Array.isArray(s.progress) && s.progress.length > 0
-          ? s.progress[0].percent || 0
+          ? Math.round(
+              s.progress.reduce((sum, p) => sum + (p.percent || 0), 0) /
+                s.progress.length
+            )
           : 0,
     }));
 
@@ -846,15 +885,33 @@ router.post("/:studentId/submit-quiz", async (req, res) => {
     });
 
     // 2. Evaluate answers
+    //
+    // #34 — the per-question detail is now RECORDED as well as counted. It was
+    // being computed here and then thrown away, which is the only reason
+    // reviewing an attempt was impossible. Question and choice text is copied
+    // in, so a later edit to the quiz can't make a past attempt unreadable.
+    const perQuestionMark = totalQuestions > 0 ? totalMarks / totalQuestions : 0;
     let correctAnswers = 0;
+    const answerDetail = [];
     answers.forEach((ans) => {
       const question = questionMap[ans.questionID];
-      if (question) {
-        const selectedChoice = question.choices.id(ans.selectedAnswerID);
-        if (selectedChoice && selectedChoice.isCorrect) {
-          correctAnswers++;
-        }
-      }
+      if (!question) return;
+      const selectedChoice = question.choices.id(ans.selectedAnswerID);
+      const correctChoice = question.choices.find((c) => c.isCorrect);
+      const isCorrect = !!(selectedChoice && selectedChoice.isCorrect);
+      if (isCorrect) correctAnswers++;
+      answerDetail.push({
+        questionID: String(ans.questionID),
+        questionText: question.question || "",
+        selectedAnswerID: String(ans.selectedAnswerID || ""),
+        // Choice text lives on `label` in the Quiz model.
+        selectedAnswerText: selectedChoice ? selectedChoice.label || "" : "",
+        correctAnswerID: correctChoice ? String(correctChoice._id) : "",
+        correctAnswerText: correctChoice ? correctChoice.label || "" : "",
+        isCorrect,
+        marksAwarded: isCorrect ? Math.round(perQuestionMark * 100) / 100 : 0,
+        explanation: question.explanation || "",
+      });
     });
 
     // 3. Calculate marks based on correct answers and quiz.totalMarks
@@ -880,12 +937,38 @@ router.post("/:studentId/submit-quiz", async (req, res) => {
     const passMark = Number(quiz.passMark);
     const nowStr = new Date().toISOString();
 
+    // #34 — the attempt record that makes per-question review and
+    // "Attempt 1 / 2 / 3" history possible.
+    const buildAttempt = (attemptNumber) => ({
+      attemptNumber,
+      marks,
+      totalMarks,
+      percentage: totalMarks > 0 ? Math.round((marks / totalMarks) * 100) : 0,
+      passed: marks >= passMark,
+      // Sent by the client if it timed the sitting; null rather than 0 so an
+      // untimed attempt reads as "not recorded" instead of "took no time".
+      timeTakenSeconds:
+        Number.isFinite(Number(req.body.timeTakenSeconds)) &&
+        Number(req.body.timeTakenSeconds) > 0
+          ? Math.round(Number(req.body.timeTakenSeconds))
+          : null,
+      attemptedAt: nowStr,
+      answers: answerDetail,
+    });
+
     if (quizResult) {
       quizResult.marks = marks;
       quizResult.totalMarks = totalMarks;
       quizResult.totalAttempts = (quizResult.totalAttempts || 0) + 1;
       quizResult.lastAttemptDate = nowStr;
       quizResult.completed = marks >= passMark;
+      if (!Array.isArray(quizResult.attempts)) quizResult.attempts = [];
+      quizResult.attempts.push(buildAttempt(quizResult.totalAttempts));
+      // Keep the history bounded — the last 20 sittings is far more than any
+      // review needs, and stops a retake-heavy quiz growing the record forever.
+      if (quizResult.attempts.length > 20) {
+        quizResult.attempts = quizResult.attempts.slice(-20);
+      }
     } else {
       quizResult = {
         quizID,
@@ -894,6 +977,7 @@ router.post("/:studentId/submit-quiz", async (req, res) => {
         totalAttempts: 1,
         lastAttemptDate: nowStr,
         completed: marks >= passMark,
+        attempts: [buildAttempt(1)],
       };
       progress.quizzes.push(quizResult);
     }
@@ -917,6 +1001,9 @@ router.post("/:studentId/submit-quiz", async (req, res) => {
         completed: quizResult.completed,
         percent: Math.round((marks / totalMarks) * 100),
         passed: marks >= passMark,
+        // #34 - returned so the student's result screen can show the
+        // breakdown straight away instead of having to re-fetch it.
+        answers: answerDetail,
       },
       progress: {
         courseID: progress.courseID,
@@ -988,7 +1075,13 @@ router.get("/:studentId/course/:courseId", async (req, res) => {
     const course = await Course.findById(courseId);
     if (!course) return res.status(404).json({ error: "Course not found." });
 
-    res.json({ course });
+    // Also return this student's own progress for the course (#27) — the
+    // FE needs assignment status/marks/feedback to show anything beyond
+    // "submitted or not", and previously had no way to see it at all.
+    const progress =
+      student.progress.find((p) => p.courseID === courseId) || null;
+
+    res.json({ course, progress });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -997,10 +1090,26 @@ router.get("/:studentId/course/:courseId", async (req, res) => {
 // submit assignment
 router.post(
   "/:studentId/course/:courseId/assignment/:assignmentId/submit",
+  // #27.2 — accepts a file now. multer only handles multipart requests and
+  // calls through for anything else, so existing JSON callers keep working.
+  upload.single("file"),
   async (req, res) => {
     try {
       const { studentId, courseId, assignmentId } = req.params;
-      const { assignment } = req.body; // the assignment content/data
+      const { assignment, fileUrl } = req.body; // the assignment content/data
+
+      // Over multipart an array arrives JSON-encoded (or as a single string),
+      // so normalise before it reaches the schema — appending an array to a
+      // form field otherwise stores the literal text "[object Object]".
+      let links = req.body.links;
+      if (typeof links === "string") {
+        try {
+          const parsed = JSON.parse(links);
+          links = Array.isArray(parsed) ? parsed : [links];
+        } catch {
+          links = links.trim() ? [links.trim()] : [];
+        }
+      }
 
       // 1. Get the student
       const student = await Student.findById(studentId);
@@ -1022,40 +1131,76 @@ router.post(
           .status(404)
           .json({ error: "No progress found for this course" });
 
-      // 4. Check if assignment already submitted
+      // 4. Resubmission workflow (#27) — only blocked once a submission is
+      // actually being/has been reviewed. This used to hard-block ANY
+      // resubmission, which made "Needs Revision" a dead end for students.
       const assignmentProgress = progress.assignments.find(
         (a) => a.assignmentsID === assignmentId
       );
-      if (assignmentProgress) {
-        return res.status(400).json({ error: "Assignment already submitted" });
+      if (
+        assignmentProgress &&
+        !["Pending", "Needs Revision"].includes(assignmentProgress.status)
+      ) {
+        return res.status(400).json({
+          error:
+            assignmentProgress.status === "Completed"
+              ? "This assignment has already been completed."
+              : "This assignment is already under review.",
+        });
       }
 
-      // 5. Mark as submitted (new or update existing)
-      const nowStr = new Date().toISOString();
-      if (assignmentProgress) {
-        assignmentProgress.isSubmitted = false;
-        assignmentProgress.assignmentDate = nowStr;
-        assignmentProgress.assignment = assignment; // Save assignment content
-      } else {
-        // If not present (could happen if assignments are created after enrollment)
-        progress.assignments.push({
-          isSubmitted: false,
-          assignmentsID: assignmentId,
-          assignmentDate: nowStr,
-          assignment: assignment,
+      // 4b. Upload the attachment, if one was sent (#27.2).
+      let uploadedFile = null;
+      if (req.file) {
+        if (req.file.size > 20 * 1024 * 1024) {
+          return res
+            .status(400)
+            .json({ error: "That file is larger than 20MB. Please upload a smaller one." });
+        }
+        uploadedFile = await uploadAssignmentFileToS3(req.file);
+      }
+
+      // A submission needs SOMETHING in it — previously an empty submit would
+      // record a blank "Under Review" entry the instructor couldn't act on.
+      const hasLinks = Array.isArray(links) && links.some((l) => String(l).trim());
+      if (!uploadedFile && !fileUrl && !hasLinks && !String(assignment || "").trim()) {
+        return res.status(400).json({
+          error: "Add your answer, a link, or attach a file before submitting.",
         });
+      }
+
+      // 5. Mark as submitted (new or resubmission)
+      const nowStr = new Date().toISOString();
+      const nextAssignment = {
+        isSubmitted: true,
+        assignmentsID: assignmentId,
+        assignmentDate: nowStr,
+        assignment,
+        links: Array.isArray(links) ? links : [],
+        // A resubmission with a new file replaces the old one; without a new
+        // file the previous attachment is kept rather than silently dropped.
+        fileUrl: uploadedFile ? uploadedFile.url : fileUrl || assignmentProgress?.fileUrl || "",
+        file: uploadedFile || assignmentProgress?.file || null,
+        status: "Under Review",
+        // A resubmission clears the previous grade — it no longer applies
+        // to the new attempt. Feedback stays visible so the student can
+        // see what they were asked to revise.
+        marks: null,
+        feedback: assignmentProgress?.feedback || "",
+        submittedAt: nowStr,
+        reviewedAt: null,
+      };
+      if (assignmentProgress) {
+        Object.assign(assignmentProgress, nextAssignment);
+      } else {
+        progress.assignments.push(nextAssignment);
       }
 
       await student.save();
 
       res.json({
         message: "Assignment submitted successfully",
-        assignment: {
-          assignmentsID: assignmentId,
-          isSubmitted: false,
-          assignment,
-          assignmentDate: nowStr,
-        },
+        assignment: nextAssignment,
       });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1125,14 +1270,43 @@ router.post(
           .json({ error: "Assignment progress not found for the student." });
       }
 
-      // 5. Update isSubmitted and assignmentDate
+      // 5. Instructor review (#27) — marks + written feedback + status,
+      // instead of just a binary "checked" flag. status defaults to
+      // "Reviewed" (kept backward-compatible with the old checked-only
+      // callers that send no body).
+      const { status, marks, feedback } = req.body || {};
       assignmentProgress.isSubmitted = true;
+      assignmentProgress.status =
+        status && ["Reviewed", "Needs Revision", "Completed"].includes(status)
+          ? status
+          : "Reviewed";
+      if (marks !== undefined) assignmentProgress.marks = marks;
+      if (feedback !== undefined) assignmentProgress.feedback = feedback;
+      assignmentProgress.reviewedAt = new Date().toISOString();
       await student.save();
 
       res.json({
-        message: "Assignment marked as submitted.",
+        message: "Assignment reviewed.",
         assignment: assignmentProgress,
       });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// All lessonWatched entries for a course, for the sidebar progress ring on
+// every lesson at once (#30/T5.4) instead of one request per lesson.
+router.get(
+  "/:studentId/course/:courseId/lessons-watched",
+  async (req, res) => {
+    try {
+      const { studentId, courseId } = req.params;
+      const student = await Student.findById(studentId);
+      if (!student) return res.status(404).json({ error: "Student not found" });
+
+      const progress = student.progress.find((p) => p.courseID === courseId);
+      res.json({ lessonWatched: progress?.lessonWatched || [] });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

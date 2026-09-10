@@ -72,6 +72,19 @@ const MessageSchema = new mongoose.Schema(
     },
 
     replyTo: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
+
+    // Edit/delete (#2) — deletedFor above is per-user "delete for me" and
+    // was never wired to any endpoint; this is a real delete-for-everyone,
+    // filtered out of getMessages so a refresh doesn't bring it back.
+    editedAt: { type: Date, default: null },
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+
+    // #2.7 — pinned announcements sit at the top until an admin unpins them.
+    // Held on the message rather than the chat so more than one can be pinned
+    // and the order between them is by pin time.
+    isPinned: { type: Boolean, default: false },
+    pinnedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

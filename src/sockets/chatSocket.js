@@ -6,7 +6,16 @@ const Student = require("../models/Student");
 const Message = require("../models/Message");
 
 // --- USER SOCKET CONNECTION MAP ---
-const userSockets = {}; // { userId: socketId }
+//
+// A Set per user, not a single socket id: the platform allows two simultaneous
+// devices (#7), so a phone connecting used to overwrite the laptop's socket and
+// anything targeted at that user reached only one of them.
+const userSockets = {}; // { userId: Set<socketId> }
+
+/** Room every one of a user's devices joins, so emits reach all of them. */
+const userRoom = (userId) => `user:${userId}`;
+/** Single room for the Community feed (#2.21). */
+const COMMUNITY_ROOM = "community";
 
 // Helper to get user by model name
 async function getUserByModel(userId, model) {
@@ -23,23 +32,78 @@ async function getUserByModel(userId, model) {
 }
 
 // --- Get socket id for a userId ---
+// Kept returning a single id so existing callers in chatController keep
+// working; prefer emitToUser() below, which reaches every device.
 function getSocketIdByUserId(userId) {
-  return userSockets[userId];
+  const set = userSockets[userId];
+  if (!set || set.size === 0) return undefined;
+  return set.values().next().value;
+}
+
+/** True when the user has at least one live socket (#2.15 presence). */
+function isUserOnline(userId) {
+  return !!userSockets[userId] && userSockets[userId].size > 0;
+}
+
+/** Emit to every device a user has connected. */
+function emitToUser(io, userId, event, payload) {
+  if (!userId) return;
+  io.to(userRoom(userId)).emit(event, payload);
 }
 
 function chatSocket(io) {
   io.on("connection", (socket) => {
     // --- REGISTER USER SOCKET ---
+    //
+    // The disconnect handler used to be registered INSIDE this handler, so a
+    // client that re-emitted registerUser (on reconnect, or a remount) stacked
+    // a new disconnect listener every time. It is now attached once per socket,
+    // below, and cleans up whichever user this socket belongs to.
     socket.on("registerUser", (userId) => {
-      userSockets[userId] = socket.id;
-      socket.on("disconnect", () => {
-        delete userSockets[userId];
+      if (!userId) return;
+      socket.data.userId = String(userId);
+      if (!userSockets[socket.data.userId]) {
+        userSockets[socket.data.userId] = new Set();
+      }
+      const set = userSockets[socket.data.userId];
+      const wasOffline = set.size === 0;
+      set.add(socket.id);
+      socket.join(userRoom(socket.data.userId));
+      // #2.15 — only announce on the transition, not on every extra device.
+      if (wasOffline) {
+        socket.broadcast.emit("presence", {
+          userId: socket.data.userId,
+          online: true,
+        });
+      }
+      // Let the newcomer sync the current roster in one go.
+      socket.emit("presenceSnapshot", {
+        online: Object.keys(userSockets).filter((id) => userSockets[id].size),
       });
+    });
+
+    socket.on("disconnect", () => {
+      const userId = socket.data.userId;
+      if (!userId) return;
+      const set = userSockets[userId];
+      if (!set) return;
+      set.delete(socket.id);
+      // Only "offline" once the LAST device drops — otherwise closing one tab
+      // would mark a user offline while their phone is still connected.
+      if (set.size === 0) {
+        delete userSockets[userId];
+        socket.broadcast.emit("presence", { userId, online: false, lastSeen: new Date() });
+      }
     });
 
     socket.on("joinChat", ({ chatId }) => {
       socket.join(chatId);
     });
+
+    // #2.21 — Community feed room. Clients join while the tab is open so new
+    // posts, replies and reactions arrive without a refresh.
+    socket.on("joinCommunity", () => socket.join(COMMUNITY_ROOM));
+    socket.on("leaveCommunity", () => socket.leave(COMMUNITY_ROOM));
 
     socket.on("sendMessage", async (data) => {
       try {
@@ -132,12 +196,55 @@ function chatSocket(io) {
       }
     });
 
-    socket.on("typing", ({ chatId, userId }) => {
-      socket.to(chatId).emit("typing", { userId });
+    // #2.14 — typing indicator. stopTyping is explicit so the bubble clears
+    // when the sender clears the box or sends, rather than only on a timeout.
+    socket.on("typing", ({ chatId, userId, userName }) => {
+      socket.to(chatId).emit("typing", { userId, userName });
+    });
+    socket.on("stopTyping", ({ chatId, userId }) => {
+      socket.to(chatId).emit("stopTyping", { userId });
     });
 
-    socket.on("messageSeen", ({ chatId, messageId, userId }) => {
-      socket.to(chatId).emit("messageSeen", { messageId, userId });
+    // #2.13 read receipts.
+    //
+    // This handler used to only re-broadcast: nothing ever wrote to
+    // Message.seenBy, so a receipt disappeared the moment either side
+    // refreshed (the same defect the delete handler had). $addToSet persists it
+    // and is idempotent, so the client can re-announce freely.
+    //
+    // io.to (not socket.to) so the SENDER also learns their message was read —
+    // they are the one who needs to see the double tick.
+    socket.on("messageSeen", async ({ chatId, messageId, userId }) => {
+      try {
+        if (!messageId || !userId) return;
+        if (!mongoose.Types.ObjectId.isValid(messageId)) return;
+        await Message.updateOne(
+          { _id: messageId },
+          { $addToSet: { seenBy: userId } }
+        );
+        io.to(chatId).emit("messageSeen", { messageId, userId });
+      } catch (err) {
+        console.error("messageSeen failed:", err.message);
+      }
+    });
+
+    // Marking a whole conversation read in one round trip, rather than one
+    // emit per visible message when a chat is opened.
+    socket.on("messagesSeenBulk", async ({ chatId, messageIds, userId }) => {
+      try {
+        if (!userId || !Array.isArray(messageIds) || !messageIds.length) return;
+        const ids = messageIds.filter((id) =>
+          mongoose.Types.ObjectId.isValid(id)
+        );
+        if (!ids.length) return;
+        await Message.updateMany(
+          { _id: { $in: ids } },
+          { $addToSet: { seenBy: userId } }
+        );
+        io.to(chatId).emit("messagesSeenBulk", { messageIds: ids, userId });
+      } catch (err) {
+        console.error("messagesSeenBulk failed:", err.message);
+      }
     });
 
     socket.on(
@@ -173,12 +280,61 @@ function chatSocket(io) {
       }
     );
 
+    // #2's "deleted messages reappear on refresh" bug — this handler only
+    // ever broadcast the delete, it never persisted anything, so a fresh
+    // getMessages() fetch (page refresh) always brought the message back.
+    // Sender can delete their own message; an Instructor can delete any
+    // message (moderating announcement/group chats).
     socket.on(
       "deleteMessage",
       async ({ chatId, messageId, userId, userModel }) => {
-        socket
-          .to(chatId)
-          .emit("deleteMessage", { messageId, userId, userModel });
+        try {
+          const message = await Message.findById(messageId);
+          if (!message) return;
+          const isOwner = userId && message.sender.equals(userId);
+          const isModerator = userModel === "Instructor" || userModel === "User";
+          if (!isOwner && !isModerator) {
+            return socket.emit("error", {
+              message: "You can only delete your own messages.",
+            });
+          }
+          message.isDeleted = true;
+          message.deletedAt = new Date();
+          await message.save();
+
+          io.to(chatId).emit("deleteMessage", { messageId, userId, userModel });
+        } catch (err) {
+          socket.emit("error", { message: "Failed to delete message." });
+        }
+      }
+    );
+
+    // Edit a message's content (#2 — no edit mechanism existed at all).
+    // Sender-only, mirroring the REST PATCH /api/messages/message/:id.
+    socket.on(
+      "editMessage",
+      async ({ chatId, messageId, userId, content }) => {
+        try {
+          if (!content || !content.trim()) return;
+          const message = await Message.findById(messageId);
+          if (!message) return;
+          if (!userId || !message.sender.equals(userId)) {
+            return socket.emit("error", {
+              message: "You can only edit your own messages.",
+            });
+          }
+          message.content = content;
+          message.editedAt = new Date();
+          await message.save();
+
+          io.to(chatId).emit("editMessage", {
+            messageId,
+            content,
+            editedAt: message.editedAt,
+          });
+        } catch (err) {
+          socket.emit("error", { message: "Failed to edit message." });
+        }
       }
     );
 
@@ -236,4 +392,12 @@ function chatSocket(io) {
   });
 }
 
-module.exports = { chatSocket, userSockets, getSocketIdByUserId };
+module.exports = {
+  chatSocket,
+  userSockets,
+  getSocketIdByUserId,
+  isUserOnline,
+  emitToUser,
+  userRoom,
+  COMMUNITY_ROOM,
+};

@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const http = require("http"); // For Socket.IO support
@@ -51,9 +51,21 @@ app.use("/api/invoices", require("./routes/invoice"));
 // VdoCipher (DRM video) Routes
 app.use("/api/videos", require("./routes/video"));
 
+// Success Stories (#30)
+app.use("/api/success-stories", require("./routes/successStory"));
+
 // Shop (#42/#43)
 app.use("/api/products", require("./routes/product"));
 app.use("/api/orders", require("./routes/order"));
+
+// Course enrollment + payment verification (#47)
+app.use("/api/enrollments", require("./routes/enrollment"));
+
+// Community feed (#2)
+app.use("/api/community", require("./routes/community"));
+
+// Notification centre (#2.16)
+app.use("/api/notifications", require("./routes/notification"));
 
 const { chatSocket, getSocketIdByUserId } = require("./sockets/chatSocket");
 chatSocket(io);

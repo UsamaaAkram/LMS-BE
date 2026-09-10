@@ -88,8 +88,13 @@ async function sendPasswordResetEmail(to, name, otp) {
   });
 }
 
-const SITE_URL = "https://bluversedigitalhub.com";
+// Override per environment (staging/local) rather than mailing production links
+// out of a test box.
+const SITE_URL = process.env.SITE_URL || "https://bluversedigitalhub.com";
 const LOGIN_URL = `${SITE_URL}/login`;
+// #48 — the landing route is /home now. /index still redirects, but an email
+// link shouldn't depend on a redirect surviving.
+const HOME_URL = `${SITE_URL}/home`;
 
 // Email #1 — Account Created (sent when an admin creates an account)
 async function sendAccountCreatedEmail(to, name, loginEmail, tempPassword) {
@@ -128,7 +133,7 @@ async function sendEnrollmentConfirmedEmail(to, name, courseName, opts = {}) {
       <p>You have successfully enrolled in the <strong>${courseName}</strong>. Your course is now available in your Bluverse Digital Hub LMS account. Use the links below to access your course, join the community, and get started.</p>
       <p><strong>Quick Links</strong></p>
       <ul>
-        <li>📘 Bluverse Digital Hub LMS: <a href="${SITE_URL}/index">Click Here</a></li>
+        <li>📘 Bluverse Digital Hub LMS: <a href="${HOME_URL}">Click Here</a></li>
         ${communityUrl ? `<li>👥 Community Access: <a href="${communityUrl}">Join</a></li>` : ""}
         <li>🔑 Login: <a href="${LOGIN_URL}">Click Here</a></li>
       </ul>
@@ -140,7 +145,7 @@ async function sendEnrollmentConfirmedEmail(to, name, courseName, opts = {}) {
     to,
     subject,
     html,
-    text: `You have successfully enrolled in ${courseName}. Access it in your Bluverse Digital Hub LMS account: ${SITE_URL}/index`,
+    text: `You have successfully enrolled in ${courseName}. Access it in your Bluverse Digital Hub LMS account: ${HOME_URL}`,
   });
 }
 
