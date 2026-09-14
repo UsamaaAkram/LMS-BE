@@ -299,7 +299,16 @@ exports.getAllInvoices = async (req, res) => {
     const query = {};
     // Deleted invoices are hidden unless explicitly requested (superadmin view)
     query.isDeleted = req.query.deleted === "true" ? true : { $ne: true };
-    if (req.query.mode) query.mode = req.query.mode; // online | onsite
+    // Record type. "online" must also match rows where `mode` was never
+    // written: the schema defaults to "online", and the invoice table already
+    // labels anything that is not "onsite" as Online. An exact match here made
+    // those rows show as Online in the All tab while the Online tab reported
+    // "No invoices found" - the tab and the badge have to agree.
+    if (req.query.mode === "onsite") {
+      query.mode = "onsite";
+    } else if (req.query.mode === "online") {
+      query.mode = { $ne: "onsite" };
+    }
     if (req.query.paymentStatus) query.paymentStatus = req.query.paymentStatus;
     if (req.query.paymentMethod) query.paymentMethod = req.query.paymentMethod;
     if (req.query.customerCity) {
