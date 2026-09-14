@@ -1,5 +1,11 @@
 const express = require("express");
 const router = express.Router();
+
+const jwtAuth = require("../middleware/jwtAuth");
+const requireRole = require("../middleware/requireRole");
+// Staff = anyone who may administer the catalogue and the queues.
+const staffOnly = [jwtAuth, requireRole("admin", "instructor")];
+
 const Course = require("../models/Course");
 const Student = require("../models/Student");
 const Assignment = require("../models/Assignment");
@@ -22,7 +28,8 @@ const s3Client = new S3Client({
 const BUCKET = "bluverse-lms";
 
 // CREATE (POST /api/courses)
-router.post("/", upload.single("courseThumbnail"), async (req, res) => {
+// Creating a course is a staff action; this was open to anyone.
+router.post("/", staffOnly, upload.single("courseThumbnail"), async (req, res) => {
   try {
     let curriculum = [];
     if (req.body.curriculum) {
@@ -151,7 +158,8 @@ router.get("/:id", async (req, res) => {
 });
 
 // UPDATE by id
-router.put("/:id", async (req, res) => {
+// Staff only.
+router.put("/:id", staffOnly, async (req, res) => {
   try {
     const body = { ...req.body };
 
@@ -200,7 +208,8 @@ router.get("/slug/:slug", async (req, res) => {
 });
 
 // DELETE by id — cascades to all data linked to the course
-router.delete("/:id", async (req, res) => {
+// Staff only.
+router.delete("/:id", staffOnly, async (req, res) => {
   try {
     const courseId = req.params.id;
 
@@ -243,7 +252,8 @@ router.delete("/:id", async (req, res) => {
 });
 
 // GET enrolled courses for a student
-router.get("/:studentId/enrolled-courses", async (req, res) => {
+// A student's own enrolments — requires a signed-in user.
+router.get("/:studentId/enrolled-courses", jwtAuth, async (req, res) => {
   try {
     // 1. Find the student by ID
     const student = await Student.findById(req.params.studentId);
@@ -263,7 +273,8 @@ router.get("/:studentId/enrolled-courses", async (req, res) => {
 });
 
 // GET published assignments for a course
-router.get("/:courseId/assignments", async (req, res) => {
+// Course content — requires a signed-in user.
+router.get("/:courseId/assignments", jwtAuth, async (req, res) => {
   try {
      const { courseId } = req.params;
     // Only fetch assignments with status "Published"

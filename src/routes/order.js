@@ -7,6 +7,11 @@ const Product = require("../models/Product");
 const { notify } = require("../utils/notify");
 const upload = multer();
 
+
+const jwtAuth = require("../middleware/jwtAuth");
+const requireRole = require("../middleware/requireRole");
+const staffOnly = [jwtAuth, requireRole("admin", "instructor")];
+
 const { STATUS_FLOW, STATUSES, LEGACY_STATUS_MAP, DELIVERY_TYPES } = Order;
 
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
@@ -29,6 +34,13 @@ async function uploadToS3(file, folder) {
 
 const STAFF = ["admin", "superadmin", "super-admin", "instructor", "teacher"];
 const isStaff = (role) => STAFF.includes(String(role || "").toLowerCase());
+
+// The role ALWAYS comes from the verified token, never from the request. These
+// checks previously read req.body.role / req.query.role, which the caller
+// controls — with no authentication on the route, anyone could simply send
+// role:"admin" and pass. Reading req.user means the signature had to verify.
+const actorRole = (req) => req.user?.role;
+const actorLabel = (req) => req.user?.name || req.user?.email || req.user?.role || "";
 
 /** Statuses at which the delivery fields become visible to the student. */
 const DELIVERED_STATES = ["Product Delivered", "Completed"];
@@ -84,7 +96,8 @@ function tellCustomer(req, order, title, body, type) {
 // ---------------------------------------------------------------------------
 // CREATE — the customer submits payment proof (brief §1).
 // ---------------------------------------------------------------------------
-router.post("/", upload.single("paymentScreenshot"), async (req, res) => {
+// Placing an order requires a signed-in customer.
+router.post("/", jwtAuth, upload.single("paymentScreenshot"), async (req, res) => {
   try {
     const {
       productId,
@@ -182,7 +195,8 @@ router.get("/meta/options", (req, res) => {
 
 // The student's own orders — "My Products" (brief §4). Uses toStudentJSON so
 // delivery details stay sealed until the order is actually delivered.
-router.get("/my/:studentId", async (req, res) => {
+// A customer's own orders.
+router.get("/my/:studentId", jwtAuth, async (req, res) => {
   try {
     const orders = await Order.find({ studentId: req.params.studentId }).sort({
       createdAt: -1,
@@ -194,11 +208,13 @@ router.get("/my/:studentId", async (req, res) => {
 });
 
 /** Look an order up by its readable reference, e.g. from a WhatsApp message. */
-router.get("/ref/:orderId", async (req, res) => {
+// Requires login: references are sequential, and after delivery this
+// response carries the licence key or login credentials.
+router.get("/ref/:orderId", jwtAuth, async (req, res) => {
   try {
     const order = await Order.findOne({ orderId: req.params.orderId });
     if (!order) return res.status(404).json({ error: "Order not found" });
-    res.json(isStaff(req.query.role) ? order : order.toStudentJSON());
+    res.json(isStaff(actorRole(req)) ? order : order.toStudentJSON());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -207,7 +223,8 @@ router.get("/ref/:orderId", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Admin queue (brief §2 and §9) — filters, search, counts.
 // ---------------------------------------------------------------------------
-router.get("/", async (req, res) => {
+// The review queue — staff only.
+router.get("/", staffOnly, async (req, res) => {
   try {
     const query = {};
     if (req.query.studentId) query.studentId = req.query.studentId;
@@ -261,14 +278,15 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.get("/:id", async (req, res) => {
+// Requires a signed-in user.
+router.get("/:id", jwtAuth, async (req, res) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
       return res.status(404).json({ error: "Order not found" });
     }
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ error: "Order not found" });
-    res.json(isStaff(req.query.role) ? order : order.toStudentJSON());
+    res.json(isStaff(actorRole(req)) ? order : order.toStudentJSON());
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -277,10 +295,12 @@ router.get("/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 // Admin review — move the order through the workflow (brief §3).
 // ---------------------------------------------------------------------------
-router.patch("/:id/status", async (req, res) => {
+// Staff only.
+router.patch("/:id/status", staffOnly, async (req, res) => {
   try {
-    const { status, deliveredContent, adminNote, rejectionReason, role, actorName } =
-      req.body;
+    const { status, deliveredContent, adminNote, rejectionReason } = req.body;
+    const role = actorRole(req);
+    const actorName = actorLabel(req);
     if (!isStaff(role)) {
       return res.status(403).json({ error: "Only staff can update an order's status." });
     }
@@ -373,7 +393,8 @@ router.patch("/:id/status", async (req, res) => {
 // details in first and release them as one deliberate action, and so the
 // "delivered with nothing attached" case above is impossible to reach.
 // ---------------------------------------------------------------------------
-router.patch("/:id/deliver", async (req, res) => {
+// Staff only.
+router.patch("/:id/deliver", staffOnly, async (req, res) => {
   try {
     const {
       type,
@@ -381,10 +402,10 @@ router.patch("/:id/deliver", async (req, res) => {
       username,
       password,
       instructions,
-      role,
-      actorName,
       markDelivered = true,
     } = req.body;
+    const role = actorRole(req);
+    const actorName = actorLabel(req);
     if (!isStaff(role)) {
       return res.status(403).json({ error: "Only staff can deliver an order." });
     }

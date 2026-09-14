@@ -9,7 +9,15 @@ const { sendAccountCreatedEmail } = require("../utils/mailer");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 
+const jwtAuth = require("../middleware/jwtAuth");
 const router = express.Router();
+
+
+// Every route in this file requires a signed-in user. These endpoints were
+// completely open: anyone on the internet could read and write them without
+// a token. jwtAuth accepts student, instructor and admin tokens alike, and
+// for students also enforces the active-session check behind Logout.
+router.use(jwtAuth);
 
 // AWS S3 setup
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");

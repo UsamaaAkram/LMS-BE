@@ -1,5 +1,12 @@
 const express = require("express");
 const router = express.Router();
+
+const jwtAuth = require("../middleware/jwtAuth");
+const requireRole = require("../middleware/requireRole");
+// Staff = anyone who may administer the catalogue and the queues.
+const staffOnly = [jwtAuth, requireRole("admin", "instructor")];
+const optionalAuth = require("../middleware/optionalAuth");
+
 const multer = require("multer");
 const Product = require("../models/Product");
 const mongoose = require("mongoose");
@@ -25,7 +32,8 @@ async function uploadToS3(file, folder) {
 }
 
 // CREATE
-router.post("/", upload.single("image"), async (req, res) => {
+// Staff only.
+router.post("/", staffOnly, upload.single("image"), async (req, res) => {
   try {
     const { title, description, category, price, deliveryNote, status } = req.body;
     if (!title || !description || !category || !price) {
@@ -56,10 +64,18 @@ router.post("/", upload.single("image"), async (req, res) => {
 
 // GET ALL — public callers only see published products; the admin page
 // passes includeDrafts=true.
-router.get("/", async (req, res) => {
+router.get("/", optionalAuth, async (req, res) => {
   try {
     const query = {};
-    if (req.query.includeDrafts !== "true") query.status = "published";
+    // includeDrafts is a staff view. The route itself is public (the shop and
+    // the stories page need it logged out), so the flag is honoured only for a
+    // verified staff token — otherwise anyone could append it and read
+    // unpublished products.
+    const viewerIsStaff =
+      !!req.user && ["admin", "instructor"].includes(String(req.user.role));
+    if (!(viewerIsStaff && req.query.includeDrafts === "true")) {
+      query.status = "published";
+    }
     if (req.query.category) query.category = req.query.category;
     if (req.query.search) {
       query.$or = [
@@ -98,7 +114,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.put("/:id", upload.single("image"), async (req, res) => {
+// Staff only.
+router.put("/:id", staffOnly, upload.single("image"), async (req, res) => {
   try {
     const { title, description, category, price, deliveryNote, status } = req.body;
     const update = { title, description, category, deliveryNote, status };
@@ -126,7 +143,8 @@ router.put("/:id", upload.single("image"), async (req, res) => {
   }
 });
 
-router.delete("/:id", async (req, res) => {
+// Staff only.
+router.delete("/:id", staffOnly, async (req, res) => {
   try {
     const product = await Product.findByIdAndDelete(req.params.id);
     if (!product) return res.status(404).json({ error: "Product not found" });

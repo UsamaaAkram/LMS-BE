@@ -74,7 +74,7 @@ exports.editMessage = async (req, res) => {
     // any message would let an instructor silently rewrite what a student said
     // in a normal conversation, which is a different thing entirely.
     let staffMayEdit = false;
-    if (!isOwner && isStaff(req.body.role)) {
+    if (!isOwner && isStaff(actorRole(req))) {
       const chat = await Chat.findById(message.chat).select("isAnnouncement");
       staffMayEdit = !!chat?.isAnnouncement;
     }
@@ -149,6 +149,11 @@ exports.searchMessages = async (req, res) => {
 const STAFF = ["admin", "superadmin", "super-admin", "instructor", "teacher"];
 const isStaff = (role) => STAFF.includes(String(role || "").toLowerCase());
 
+// Always the verified token, never the request body. These checks used to read
+// req.body.role on routes with no authentication, so "role":"admin" in the
+// payload was enough to publish, edit or pin an announcement.
+const actorRole = (req) => req.user?.role;
+
 /** The announcement channel, or null if one has not been created yet. */
 async function findAnnouncementChat() {
   return Chat.findOne({ isAnnouncement: true });
@@ -180,7 +185,8 @@ exports.getAnnouncements = async (req, res) => {
 // POST /api/messages/announcements — publish a new announcement.
 exports.createAnnouncement = async (req, res) => {
   try {
-    const { sender, senderModel, content, attachment, role } = req.body || {};
+    const { sender, senderModel, content, attachment } = req.body || {};
+    const role = actorRole(req);
     if (!sender || !senderModel) {
       return res
         .status(400)
@@ -235,7 +241,8 @@ exports.createAnnouncement = async (req, res) => {
 exports.pinMessage = async (req, res) => {
   try {
     const { messageId } = req.params;
-    const { pinned, role } = req.body || {};
+    const { pinned } = req.body || {};
+    const role = actorRole(req);
     if (!isStaff(role)) {
       return res
         .status(403)

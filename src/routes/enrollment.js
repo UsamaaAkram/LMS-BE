@@ -2,6 +2,12 @@ const express = require("express");
 const mongoose = require("mongoose");
 const multer = require("multer");
 const router = express.Router();
+
+const jwtAuth = require("../middleware/jwtAuth");
+const requireRole = require("../middleware/requireRole");
+const staffOnly = [jwtAuth, requireRole("admin", "instructor")];
+const optionalAuth = require("../middleware/optionalAuth");
+
 const upload = multer();
 
 const EnrollmentRequest = require("../models/EnrollmentRequest");
@@ -191,7 +197,8 @@ router.post("/", upload.single("paymentScreenshot"), async (req, res) => {
 });
 
 // GET /api/enrollments — admin queue, with the filters from #47.6
-router.get("/", async (req, res) => {
+// The review queue — staff only.
+router.get("/", staffOnly, async (req, res) => {
   try {
     const { status, courseId, search, paymentMethod } = req.query;
     const q = {};
@@ -220,7 +227,8 @@ router.get("/", async (req, res) => {
 });
 
 // GET /api/enrollments/my/:studentId — the student's own "My Enrollments" (#47.10)
-router.get("/my/:studentId", async (req, res) => {
+// A student's own requests.
+router.get("/my/:studentId", jwtAuth, async (req, res) => {
   try {
     const items = await EnrollmentRequest.find({
       studentId: req.params.studentId,
@@ -232,20 +240,43 @@ router.get("/my/:studentId", async (req, res) => {
 });
 
 // GET /api/enrollments/ref/:requestId — status page lookup by human reference
-router.get("/ref/:requestId", async (req, res) => {
+router.get("/ref/:requestId", optionalAuth, async (req, res) => {
   try {
     const doc = await EnrollmentRequest.findOne({
       requestId: req.params.requestId,
     });
     if (!doc) return res.status(404).json({ error: "Request not found" });
-    res.json(doc);
+
+    // Staff get the whole record. For everyone else this is a status-only
+    // projection: the route has to stay public (someone enrolling has no
+    // account yet), references are sequential and therefore guessable, and the
+    // full document carries the payment screenshot, transaction id, personal
+    // details and the internal review history. Anyone counting upwards from
+    // ENR-2026-000001 would have walked the lot.
+    const viewerIsStaff =
+      !!req.user && ["admin", "instructor"].includes(String(req.user.role));
+    if (viewerIsStaff) return res.json(doc);
+
+    res.json({
+      requestId: doc.requestId,
+      course: doc.course,
+      courseTitle: doc.courseTitle,
+      planName: doc.planName,
+      status: doc.status,
+      rejectionReason: doc.rejectionReason,
+      isFreeEnrollment: doc.isFreeEnrollment,
+      accessStartAt: doc.accessStartAt,
+      accessExpiresAt: doc.accessExpiresAt,
+      createdAt: doc.createdAt,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 // PATCH /api/enrollments/:id/status — Under Review / Cancelled etc. (#47.11)
-router.patch("/:id/status", async (req, res) => {
+// Staff only.
+router.patch("/:id/status", staffOnly, async (req, res) => {
   try {
     const { status, actor } = req.body || {};
     if (!EnrollmentRequest.STATUSES.includes(status)) {
@@ -274,7 +305,8 @@ router.patch("/:id/status", async (req, res) => {
 });
 
 // POST /api/enrollments/:id/approve — verify payment and grant access (#47.7/8/9)
-router.post("/:id/approve", async (req, res) => {
+// Grants course access — staff only.
+router.post("/:id/approve", staffOnly, async (req, res) => {
   try {
     const { actor } = req.body || {};
     const doc = await EnrollmentRequest.findById(req.params.id);
@@ -353,7 +385,8 @@ router.post("/:id/approve", async (req, res) => {
 });
 
 // POST /api/enrollments/:id/reject — requires a reason (#47.7)
-router.post("/:id/reject", async (req, res) => {
+// Staff only.
+router.post("/:id/reject", staffOnly, async (req, res) => {
   try {
     const { reason, actor } = req.body || {};
     if (!reason || !String(reason).trim()) {

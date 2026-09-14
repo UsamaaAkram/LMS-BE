@@ -3,6 +3,7 @@ const express = require("express");
 const path = require("path");
 const puppeteer = require("puppeteer");
 
+const jwtAuth = require("../middleware/jwtAuth");
 const router = express.Router();
 const bcrypt = require("bcryptjs");
 const Student = require("../models/Student");
@@ -479,6 +480,21 @@ router.post("/reset-password", async (req, res) => {
 });
 
 // Edit API (patch student)
+// ---------------------------------------------------------------------------
+// Everything ABOVE this line is reachable without a token, and has to be:
+// signup, email verification, resend-verification, forgot-password and
+// reset-password are all used by people who are not signed in yet.
+//
+// Everything BELOW requires one. These endpoints were completely open —
+// GET /api/students returned every student's email, phone, address, CNIC and
+// guardian details to anyone who asked.
+//
+// NOTE: this authenticates but does not yet authorise per-owner. A signed-in
+// student can still read another student's records by changing the id in the
+// URL; that is the next phase.
+// ---------------------------------------------------------------------------
+router.use(jwtAuth);
+
 router.patch("/:id", upload.single("photo"), async (req, res) => {
   try {
     // --- Parse JSON strings for nested objects (from multipart) ---

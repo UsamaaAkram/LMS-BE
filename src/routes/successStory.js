@@ -1,5 +1,12 @@
 const express = require("express");
 const router = express.Router();
+
+const jwtAuth = require("../middleware/jwtAuth");
+const requireRole = require("../middleware/requireRole");
+// Staff = anyone who may administer the catalogue and the queues.
+const staffOnly = [jwtAuth, requireRole("admin", "instructor")];
+const optionalAuth = require("../middleware/optionalAuth");
+
 const multer = require("multer");
 const SuccessStory = require("../models/SuccessStory");
 const upload = multer();
@@ -39,7 +46,8 @@ function detectPlatform(url = "") {
 }
 
 // CREATE
-router.post("/", upload.single("thumbnail"), async (req, res) => {
+// Staff only.
+router.post("/", staffOnly, upload.single("thumbnail"), async (req, res) => {
   try {
     const { studentName, title, story, videoUrl, featured, status } = req.body;
     if (!studentName || !title || !story) {
@@ -70,10 +78,18 @@ router.post("/", upload.single("thumbnail"), async (req, res) => {
 
 // GET ALL — public callers only ever see published stories; the admin
 // management page passes includeDrafts=true to see everything.
-router.get("/", async (req, res) => {
+router.get("/", optionalAuth, async (req, res) => {
   try {
     const query = {};
-    if (req.query.includeDrafts !== "true") query.status = "published";
+    // includeDrafts is a staff view. The route itself is public (the shop and
+    // the stories page need it logged out), so the flag is honoured only for a
+    // verified staff token — otherwise anyone could append it and read
+    // unpublished stories.
+    const viewerIsStaff =
+      !!req.user && ["admin", "instructor"].includes(String(req.user.role));
+    if (!(viewerIsStaff && req.query.includeDrafts === "true")) {
+      query.status = "published";
+    }
     if (req.query.platform) query.platform = req.query.platform;
     if (req.query.search) {
       query.$or = [
@@ -104,7 +120,8 @@ router.get("/:id", async (req, res) => {
 });
 
 // UPDATE
-router.put("/:id", upload.single("thumbnail"), async (req, res) => {
+// Staff only.
+router.put("/:id", staffOnly, upload.single("thumbnail"), async (req, res) => {
   try {
     const { studentName, title, story, videoUrl, featured, status } = req.body;
     const update = {
@@ -132,7 +149,8 @@ router.put("/:id", upload.single("thumbnail"), async (req, res) => {
 });
 
 // DELETE
-router.delete("/:id", async (req, res) => {
+// Staff only.
+router.delete("/:id", staffOnly, async (req, res) => {
   try {
     const story = await SuccessStory.findByIdAndDelete(req.params.id);
     if (!story) return res.status(404).json({ error: "Story not found" });
