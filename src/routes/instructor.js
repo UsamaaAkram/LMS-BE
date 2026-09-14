@@ -75,6 +75,12 @@ router.post("/signup", upload.single("photo"), async (req, res) => {
       { name: "certificates", isDisable: true },
       { name: "messages", isDisable: true },
       { name: "tickets", isDisable: true },
+      // "receipts" was already allowed by the Instructor schema's enum, but was
+      // never created here. The Receipts page default-denies when the entry is
+      // missing, and the admin's toggle screen is built by looping over the
+      // entries that exist - so the switch never appeared and the permission
+      // could not be granted to anyone, ever. Created disabled, like the rest.
+      { name: "receipts", isDisable: true },
     ];
 
     let educationList = [];
