@@ -1,6 +1,26 @@
 const express = require("express");
 const jwtAuth = require("../middleware/jwtAuth");
+const requireSelfOrStaff = require("../middleware/requireSelfOrStaff");
 const router = express.Router();
+
+
+// Anyone signed in could read another account's notifications.
+// router.param fires for every route carrying :userId, so this covers all
+// of them in one place — including the multi-segment paths — and any route
+// added later inherits it automatically instead of being forgotten.
+router.param("userId", requireSelfOrStaff("userId"));
+
+const STAFF = ["admin", "superadmin", "super-admin", "instructor", "teacher"];
+/**
+ * Restricts a query to the caller's own notifications. Staff are unrestricted,
+ * so moderation tooling keeps working. Returns a query fragment rather than a
+ * boolean so the ownership test happens IN the database query — there is then
+ * no window where the row is fetched before the check.
+ */
+const recipientScope = (req) =>
+  STAFF.includes(String(req.user?.role || "").toLowerCase())
+    ? {}
+    : { recipient: String(req.user?.id || "") };
 
 // Every route in this file requires a signed-in user. These endpoints were
 // completely open: anyone on the internet could read and write them without
@@ -48,8 +68,11 @@ router.get("/:userId/count", async (req, res) => {
 // PATCH /api/notifications/:id/read — mark one read
 router.patch("/:id/read", async (req, res) => {
   try {
-    const n = await Notification.findByIdAndUpdate(
-      req.params.id,
+    // Scoped by recipient as part of the query rather than checked after the
+    // fact: addressing by id alone let any signed-in user mark somebody else's
+    // notifications read. A non-owner now simply matches nothing.
+    const n = await Notification.findOneAndUpdate(
+      { _id: req.params.id, ...recipientScope(req) },
       { $set: { isRead: true, readAt: new Date() } },
       { new: true }
     );
@@ -76,7 +99,10 @@ router.post("/:userId/read-all", async (req, res) => {
 // DELETE /api/notifications/:id — dismiss one
 router.delete("/:id", async (req, res) => {
   try {
-    const n = await Notification.findByIdAndDelete(req.params.id);
+    const n = await Notification.findOneAndDelete({
+      _id: req.params.id,
+      ...recipientScope(req),
+    });
     if (!n) return res.status(404).json({ error: "Notification not found" });
     res.json({ message: "Dismissed", _id: n._id });
   } catch (err) {

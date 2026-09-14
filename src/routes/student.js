@@ -4,7 +4,16 @@ const path = require("path");
 const puppeteer = require("puppeteer");
 
 const jwtAuth = require("../middleware/jwtAuth");
+const requireSelfOrStaff = require("../middleware/requireSelfOrStaff");
 const router = express.Router();
+
+// A signed-in student could read any other student's progress, submissions,
+// wishlist and certificates by changing the id in the URL.
+// router.param fires for every route carrying :studentId, so this covers all
+// of them in one place — including the multi-segment paths — and any route
+// added later inherits it automatically instead of being forgotten.
+router.param("studentId", requireSelfOrStaff("studentId"));
+
 const bcrypt = require("bcryptjs");
 const Student = require("../models/Student");
 const Course = require("../models/Course");
@@ -495,7 +504,8 @@ router.post("/reset-password", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.use(jwtAuth);
 
-router.patch("/:id", upload.single("photo"), async (req, res) => {
+// A student may edit only their own profile; staff may edit any.
+router.patch("/:id", requireSelfOrStaff("id"), upload.single("photo"), async (req, res) => {
   try {
     // --- Parse JSON strings for nested objects (from multipart) ---
     if (typeof req.body.student === "string") {
@@ -774,7 +784,8 @@ router.get("/summary", async (req, res) => {
 });
 
 // Get by ID
-router.get("/:id", async (req, res) => {
+// Reading one student record: the owner, or staff.
+router.get("/:id", requireSelfOrStaff("id"), async (req, res) => {
   try {
     const student = await Student.findById(req.params.id);
     if (!student) return res.status(404).json({ error: "Student not found" });

@@ -1,3 +1,4 @@
+const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const Chat = require("../models/Chat");
 const User = require("../models/User");
@@ -52,6 +53,32 @@ function emitToUser(io, userId, event, payload) {
 }
 
 function chatSocket(io) {
+  // --- HANDSHAKE AUTHENTICATION ---
+  //
+  // The socket carried private messages, presence and notifications while
+  // trusting whatever userId the client sent to registerUser: connecting and
+  // emitting someone else's id joined their room and delivered their private
+  // traffic. The identity now comes from a verified JWT on the handshake, and
+  // an unauthenticated connection is refused outright.
+  //
+  // Every place the app opens this socket is already behind a login, so
+  // rejecting anonymous connections costs nothing.
+  io.use((socket, next) => {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.replace("Bearer ", "");
+    if (!token) return next(new Error("unauthorized"));
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (!decoded?.id) return next(new Error("unauthorized"));
+      socket.data.authUserId = String(decoded.id);
+      socket.data.authRole = decoded.role;
+      next();
+    } catch (err) {
+      next(new Error("unauthorized"));
+    }
+  });
+
   io.on("connection", (socket) => {
     // --- REGISTER USER SOCKET ---
     //
@@ -59,7 +86,12 @@ function chatSocket(io) {
     // client that re-emitted registerUser (on reconnect, or a remount) stacked
     // a new disconnect listener every time. It is now attached once per socket,
     // below, and cleans up whichever user this socket belongs to.
-    socket.on("registerUser", (userId) => {
+    socket.on("registerUser", () => {
+      // The argument the client sends is deliberately ignored. Identity comes
+      // from the verified handshake token, so a client cannot register as
+      // anyone but itself. The event is kept because clients still emit it,
+      // and it is what triggers joining the room and announcing presence.
+      const userId = socket.data.authUserId;
       if (!userId) return;
       socket.data.userId = String(userId);
       if (!userSockets[socket.data.userId]) {

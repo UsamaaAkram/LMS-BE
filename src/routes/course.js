@@ -1,4 +1,5 @@
 const express = require("express");
+const requireSelfOrStaff = require("../middleware/requireSelfOrStaff");
 const router = express.Router();
 
 const jwtAuth = require("../middleware/jwtAuth");
@@ -253,7 +254,11 @@ router.delete("/:id", staffOnly, async (req, res) => {
 
 // GET enrolled courses for a student
 // A student's own enrolments — requires a signed-in user.
-router.get("/:studentId/enrolled-courses", jwtAuth, async (req, res) => {
+// requireSelfOrStaff is applied INLINE here, not via router.param: this file
+// authenticates per route rather than with router.use, and Express runs param
+// callbacks BEFORE a route's own middleware — so the ownership check would run
+// with no req.user and deny every request.
+router.get("/:studentId/enrolled-courses", jwtAuth, requireSelfOrStaff("studentId"), async (req, res) => {
   try {
     // 1. Find the student by ID
     const student = await Student.findById(req.params.studentId);

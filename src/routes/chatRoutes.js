@@ -1,6 +1,14 @@
 const express = require("express");
 const jwtAuth = require("../middleware/jwtAuth");
+const requireSelfOrStaff = require("../middleware/requireSelfOrStaff");
 const router = express.Router();
+
+
+// Anyone signed in could list another account's chats.
+// router.param fires for every route carrying :userId, so this covers all
+// of them in one place — including the multi-segment paths — and any route
+// added later inherits it automatically instead of being forgotten.
+router.param("userId", requireSelfOrStaff("userId"));
 
 // Every route in this file requires a signed-in user. These endpoints were
 // completely open: anyone on the internet could read and write them without

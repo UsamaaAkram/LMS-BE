@@ -1,5 +1,7 @@
 const express = require("express");
+const requireSelfOrStaff = require("../middleware/requireSelfOrStaff");
 const router = express.Router();
+
 const multer = require("multer");
 const mongoose = require("mongoose");
 const Order = require("../models/Order");
@@ -196,7 +198,11 @@ router.get("/meta/options", (req, res) => {
 // The student's own orders — "My Products" (brief §4). Uses toStudentJSON so
 // delivery details stay sealed until the order is actually delivered.
 // A customer's own orders.
-router.get("/my/:studentId", jwtAuth, async (req, res) => {
+// requireSelfOrStaff is applied INLINE here, not via router.param: this file
+// authenticates per route rather than with router.use, and Express runs param
+// callbacks BEFORE a route's own middleware — so the ownership check would run
+// with no req.user and deny every request.
+router.get("/my/:studentId", jwtAuth, requireSelfOrStaff("studentId"), async (req, res) => {
   try {
     const orders = await Order.find({ studentId: req.params.studentId }).sort({
       createdAt: -1,
